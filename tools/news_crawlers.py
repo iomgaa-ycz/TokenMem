@@ -992,6 +992,140 @@ class CNBCCrawler(BaseCrawler):
         return bool(re.match(r"^/20\d{2}/\d{2}/\d{2}/.+\.html$", path))
 
 
+class ReutersCrawler(BaseCrawler):
+    """Reuters 爬虫（reuters.com）。
+
+    综合国际新闻，文章质量高。
+    文章 URL 格式：/<section>/YYYY-MM-DD/<slug>-<id>/
+    支持类别：world, business, technology, science。
+    """
+
+    base_url = "https://www.reuters.com"
+    source_name = "reuters"
+    category_urls: Dict[str, str] = {
+        "world": "https://www.reuters.com/world/",
+        "business": "https://www.reuters.com/business/",
+        "technology": "https://www.reuters.com/technology/",
+        "science": "https://www.reuters.com/science/",
+        "politics": "https://www.reuters.com/world/us/",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """Reuters 文章路径含日期段 YYYY-MM-DD。"""
+        if re.match(r"^/(?:graphics|video|pictures|podcasts|investigates)/", path):
+            return False
+        return bool(re.search(r"/20\d{2}-\d{2}-\d{2}/", path))
+
+
+class TheVergeCrawler(BaseCrawler):
+    """The Verge 爬虫（theverge.com）。
+
+    科技与消费电子深度报道，文章结构清晰。
+    文章 URL 格式：/YYYY/M/DD/<id>/<slug>
+    支持类别：technology, science。
+    """
+
+    base_url = "https://www.theverge.com"
+    source_name = "theverge"
+    category_urls: Dict[str, str] = {
+        "technology": "https://www.theverge.com/tech",
+        "science": "https://www.theverge.com/science",
+        "ai": "https://www.theverge.com/ai-artificial-intelligence",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """The Verge 文章路径形如 /YYYY/M/DD/<id>/<slug>。"""
+        if re.match(r"^/(?:archives|authors|about|contact|pages)/", path):
+            return False
+        return bool(re.match(r"^/\d{4}/\d{1,2}/\d{1,2}/\d+/", path))
+
+
+class PoliticoCrawler(BaseCrawler):
+    """Politico 爬虫（politico.com）。
+
+    美国政治新闻，公开 RSS，文章结构规范。
+    文章 URL 格式：/news/<YYYY>/<MM>/<DD>/<slug>-<id>
+    支持类别：politics。
+    """
+
+    base_url = "https://www.politico.com"
+    source_name = "politico"
+    category_urls: Dict[str, str] = {
+        "politics": "https://www.politico.com/politics",
+        "world": "https://www.politico.com/foreign-policy",
+        "business": "https://www.politico.com/economy",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """Politico 文章路径含 /news/ 或日期段。"""
+        if re.match(r"^/(?:newsletters|staff|about|podcasts|video|live)/", path):
+            return False
+        if re.match(r"^/news/\d{4}/\d{2}/\d{2}/", path):
+            return True
+        segments = [s for s in path.split("/") if s]
+        return len(segments) >= 3 and any(re.fullmatch(r"20\d{2}", s) for s in segments)
+
+
+class ESPNCrawler(BaseCrawler):
+    """ESPN 爬虫（espn.com）。
+
+    体育新闻，量大结构简单。
+    文章 URL 格式：/<sport>/story/_/id/<数字>/<slug>
+    支持类别：sports。
+    """
+
+    base_url = "https://www.espn.com"
+    source_name = "espn"
+    category_urls: Dict[str, str] = {
+        "sports": "https://www.espn.com/espn/latestnews",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """ESPN 文章路径含 /story/_/id/<数字>。"""
+        return bool(re.search(r"/story/_/id/\d+", path))
+
+
+class NatureNewsCrawler(BaseCrawler):
+    """Nature News 爬虫（nature.com/news）。
+
+    顶级科学新闻，文章质量极高。
+    文章 URL 格式：/articles/<doi-slug>
+    支持类别：science。
+    """
+
+    base_url = "https://www.nature.com"
+    source_name = "nature"
+    category_urls: Dict[str, str] = {
+        "science": "https://www.nature.com/news",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """Nature 文章路径形如 /articles/xxxxx。"""
+        if re.match(r"^/(?:subjects|authors|collections|about)/", path):
+            return False
+        return bool(re.match(r"^/articles/[a-z0-9-]+$", path))
+
+
+class PhysOrgCrawler(BaseCrawler):
+    """Phys.org 爬虫（phys.org）。
+
+    科学新闻聚合，开放访问，trafilatura 提取效果好。
+    文章 URL 格式：/news/YYYY-MM-<slug>.html
+    支持类别：science, technology。
+    """
+
+    base_url = "https://phys.org"
+    source_name = "physorg"
+    category_urls: Dict[str, str] = {
+        "science": "https://phys.org/science-news/",
+        "technology": "https://phys.org/technology-news/",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """Phys.org 文章路径形如 /news/YYYY-MM-<slug>.html。"""
+        return bool(re.match(r"^/news/20\d{2}-\d{2}-.+\.html$", path))
+
+
 # ---------------------------------------------------------------------------
 # 爬虫实例注册表
 # ---------------------------------------------------------------------------
@@ -1010,6 +1144,12 @@ _CRAWLER_REGISTRY: Dict[str, BaseCrawler] = {
     "wired": WiredCrawler(),
     "france24": France24Crawler(),
     "cnbc": CNBCCrawler(),
+    "reuters": ReutersCrawler(),
+    "theverge": TheVergeCrawler(),
+    "politico": PoliticoCrawler(),
+    "espn": ESPNCrawler(),
+    "nature": NatureNewsCrawler(),
+    "physorg": PhysOrgCrawler(),
 }
 
 
