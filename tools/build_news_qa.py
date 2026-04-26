@@ -243,15 +243,21 @@ Passage:
 
 _GENERATE_MULTI_QA_PROMPT_TEMPLATE = """\
 You are a question-answer generation expert. Given a factual passage from a \
-news article, generate {n} different factual questions. Each question should:
-- Focus on a DIFFERENT fact or aspect of the passage
+news article, generate {n} different factual questions. Each question MUST:
+- Focus on a DIFFERENT fact, entity, or aspect of the passage — NO two \
+questions may target the same piece of information
 - Be answerable ONLY by reading the passage, not from general world knowledge
 - Have a specific, concise answer (a name, number, date, or event)
 
-Aim for this variety across the {n} questions:
-- At least one question about a key entity or person mentioned
-- At least one question about a number, date, or quantity
-- At least one question about a cause, effect, or outcome
+Mandatory variety (pick {n} from these question types):
+- A "who" question about a key person or organization
+- A "what" question about a specific event or outcome
+- A "when" or "how many" question about a date, quantity, or statistic
+- A "why" or "how" question about a cause, effect, or mechanism
+- A "where" question about a location or context
+
+If two questions would have the same answer, DISCARD one and write a new one \
+about a different fact.
 
 Return your response as JSON with this exact format:
 {{"qa_pairs": [{{"question": "...", "answer": "..."}}, ...]}}
@@ -715,6 +721,45 @@ async def run_step3(qa_raw_path: Path, output_path: Path) -> int:
     return count
 
 
+def run_dedup(input_path: Path, output_path: Path) -> int:
+    """对 qa_full.jsonl 进行 question 文本级去重，输出 qa_full_dedup.jsonl。
+
+    去重策略：
+    1. 精确去重：question 文本完全相同（忽略大小写和首尾空白）。
+    2. 近似去重：question 前 60 字符 + correct_answer 组合重复则视为近似重复。
+
+    参数：
+        input_path:  qa_full.jsonl 路径。
+        output_path: 去重后输出路径。
+
+    返回：
+        去重后保留的条目数。
+    """
+    items = _load_jsonl(input_path)
+    seen_exact: set[str] = set()
+    seen_fuzzy: set[str] = set()
+    kept: List[Dict] = []
+
+    for item in items:
+        q = item.get("question", "").strip().lower()
+        a = item.get("correct_answer", "").strip().lower()
+
+        if q in seen_exact:
+            continue
+        seen_exact.add(q)
+
+        fuzzy_key = q[:60] + "||" + a
+        if fuzzy_key in seen_fuzzy:
+            continue
+        seen_fuzzy.add(fuzzy_key)
+
+        kept.append(item)
+
+    _save_jsonl(kept, output_path)
+    logger.info("去重完成：%d → %d（移除 %d 重复）", len(items), len(kept), len(items) - len(kept))
+    return len(kept)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 4: OOD 零样本基线检查
 # ─────────────────────────────────────────────────────────────────────────────
@@ -976,16 +1021,24 @@ async def run_pipeline(
             logger.info("Step 3: 生成干扰项…")
             await run_step3(qa_raw_path, qa_full_path)
 
+    # 去重
+    dedup_path = DATA_DIR / "qa_full_dedup.jsonl"
+    if any(s in step_list for s in [1, 2, 3]) or not dedup_path.exists():
+        logger.info("执行去重…")
+        run_dedup(qa_full_path, dedup_path)
+    else:
+        logger.info("去重跳过（qa_full_dedup.jsonl 已存在且无上游更新）")
+
     if 4 in step_list:
         logger.info("Step 4: OOD 零样本基线检查…")
-        run_step4_ood_check(qa_full_path)
+        run_step4_ood_check(dedup_path)
 
     if 5 in step_list:
         if resume and train_path.exists() and test_path.exists():
             logger.info("Step 5 跳过（输出文件已存在）")
         else:
             logger.info("Step 5: 压缩并转换为 v2 schema…")
-            run_step5_convert(qa_full_path, train_path, test_path)
+            run_step5_convert(dedup_path, train_path, test_path)
 
     logger.info("流水线执行完毕。")
 
@@ -1017,8 +1070,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--qa-per-passage",
         type=int,
-        default=3,
-        help="Step 2 每个段落生成的 QA 对数量（默认: 3，目标 10K+ QA 时建议 4-5）",
+        default=5,
+        help="Step 2 每个段落生成的 QA 对数量（默认: 5）",
     )
     return parser
 
