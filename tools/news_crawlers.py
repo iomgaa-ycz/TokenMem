@@ -1126,6 +1126,142 @@ class PhysOrgCrawler(BaseCrawler):
         return bool(re.match(r"^/news/20\d{2}-\d{2}-.+\.html$", path))
 
 
+class CNNCrawler(BaseCrawler):
+    """CNN 爬虫（cnn.com）。
+
+    美国综合新闻，文章量大。部分页面需 JS 渲染，优先尝试 trafilatura。
+    文章 URL 格式：/YYYY/MM/DD/<section>/<slug>/index.html
+    支持类别：world, politics, business, technology。
+    """
+
+    base_url = "https://www.cnn.com"
+    source_name = "cnn"
+    category_urls: Dict[str, str] = {
+        "world": "https://www.cnn.com/world",
+        "politics": "https://www.cnn.com/politics",
+        "business": "https://www.cnn.com/business",
+        "technology": "https://www.cnn.com/business/tech",
+        "science": "https://www.cnn.com/science",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """CNN 文章路径含日期 /YYYY/MM/DD/。"""
+        if re.match(r"^/(?:videos|audio|live-news|gallery)/", path):
+            return False
+        return bool(re.match(r"^/\d{4}/\d{2}/\d{2}/", path))
+
+
+class BloombergCrawler(BaseCrawler):
+    """Bloomberg 爬虫（bloomberg.com）。
+
+    商业财经新闻，部分有 paywall，提取公开摘要部分。
+    文章 URL 格式：/news/articles/YYYY-MM-DD/<slug>
+    支持类别：business, technology。
+    """
+
+    base_url = "https://www.bloomberg.com"
+    source_name = "bloomberg"
+    category_urls: Dict[str, str] = {
+        "business": "https://www.bloomberg.com/markets",
+        "technology": "https://www.bloomberg.com/technology",
+        "politics": "https://www.bloomberg.com/politics",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """Bloomberg 文章路径含 /news/articles/ 或 /news/features/。"""
+        return bool(re.match(r"^/news/(?:articles|features)/20\d{2}-\d{2}-\d{2}/", path))
+
+
+class TheHillCrawler(BaseCrawler):
+    """The Hill 爬虫（thehill.com）。
+
+    美国政治与政策新闻，结构清晰，无 paywall。
+    文章 URL 格式：/<section>/<数字>-<slug>/
+    支持类别：politics, business。
+    """
+
+    base_url = "https://thehill.com"
+    source_name = "thehill"
+    category_urls: Dict[str, str] = {
+        "politics": "https://thehill.com/news/administration/",
+        "business": "https://thehill.com/business/",
+        "technology": "https://thehill.com/policy/technology/",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """The Hill 文章路径含长数字 ID。"""
+        if re.match(r"^/(?:people|newsletters|events|about)/", path):
+            return False
+        return bool(re.search(r"/\d{7,}-", path))
+
+
+class SkyNewsCrawler(BaseCrawler):
+    """Sky News 爬虫（news.sky.com）。
+
+    英国综合新闻，HTML 结构干净，无 paywall。
+    文章 URL 格式：/story/<slug>-<数字>
+    支持类别：world, politics, business, technology, science。
+    """
+
+    base_url = "https://news.sky.com"
+    source_name = "skynews"
+    category_urls: Dict[str, str] = {
+        "world": "https://news.sky.com/world",
+        "politics": "https://news.sky.com/politics",
+        "business": "https://news.sky.com/business",
+        "technology": "https://news.sky.com/technology",
+        "science": "https://news.sky.com/science",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """Sky News 文章路径形如 /story/<slug>-<数字>。"""
+        return bool(re.match(r"^/story/.+-\d{7,}$", path))
+
+
+class NewScientistCrawler(BaseCrawler):
+    """New Scientist 爬虫（newscientist.com）。
+
+    科学新闻与深度报道，部分有 paywall，提取公开摘要。
+    文章 URL 格式：/article/<id>/<slug>/
+    支持类别：science, technology。
+    """
+
+    base_url = "https://www.newscientist.com"
+    source_name = "newscientist"
+    category_urls: Dict[str, str] = {
+        "science": "https://www.newscientist.com/subject/physics/",
+        "technology": "https://www.newscientist.com/subject/technology/",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """New Scientist 文章路径形如 /article/<id>/<slug>/。"""
+        return bool(re.match(r"^/article/\d+/", path))
+
+
+class ABCNewsAUCrawler(BaseCrawler):
+    """ABC News Australia 爬虫（abc.net.au）。
+
+    澳洲公共媒体，完全开放访问，trafilatura 效果好。
+    文章 URL 格式：/news/YYYY-MM-DD/<slug>/<id>
+    支持类别：world, science, business, politics。
+    """
+
+    base_url = "https://www.abc.net.au"
+    source_name = "abcau"
+    category_urls: Dict[str, str] = {
+        "world": "https://www.abc.net.au/news/world",
+        "science": "https://www.abc.net.au/news/science",
+        "business": "https://www.abc.net.au/news/business",
+        "politics": "https://www.abc.net.au/news/politics",
+    }
+
+    def _is_article_url(self, path: str) -> bool:
+        """ABC AU 文章路径含日期 /YYYY-MM-DD/ 或 /news/<slug>/<数字>。"""
+        if re.match(r"^/news/\d{4}-\d{2}-\d{2}/", path):
+            return True
+        return bool(re.match(r"^/news/[^/]+/\d{7,}$", path))
+
+
 # ---------------------------------------------------------------------------
 # 爬虫实例注册表
 # ---------------------------------------------------------------------------
@@ -1150,6 +1286,12 @@ _CRAWLER_REGISTRY: Dict[str, BaseCrawler] = {
     "espn": ESPNCrawler(),
     "nature": NatureNewsCrawler(),
     "physorg": PhysOrgCrawler(),
+    "cnn": CNNCrawler(),
+    "bloomberg": BloombergCrawler(),
+    "thehill": TheHillCrawler(),
+    "skynews": SkyNewsCrawler(),
+    "newscientist": NewScientistCrawler(),
+    "abcau": ABCNewsAUCrawler(),
 }
 
 
