@@ -118,64 +118,51 @@ class Article:
 # ---------------------------------------------------------------------------
 
 SITE_CATEGORY_PLAN: Dict[str, Dict[str, int]] = {
-    # 总原始请求容量约 14000，考虑 ~60-70% 成功率后预期产出约 8400-9800 篇。
-    # 叠加去重损耗（同标题/URL 文章）后目标实际入库 ~6000-8000 篇。
+    # 总原始请求容量约 24000，考虑 ~60-70% 成功率后预期产出约 14400-16800 篇。
+    # 叠加去重损耗后目标实际入库 ~8000-10000 篇。
     "science": {
-        "bbc": 300,
-        "apnews": 200,
-        "npr": 200,
-        "guardian": 400,
-        "arstechnica": 350,
-        "cbsnews": 200,
-        "sciencedaily": 500,
-        "independent": 300,
-        "wired": 250,
-        "france24": 200,
+        "bbc": 300, "apnews": 200, "npr": 200, "guardian": 400,
+        "arstechnica": 350, "cbsnews": 200, "sciencedaily": 500,
+        "independent": 300, "wired": 250, "france24": 200,
+        # 新增
+        "nature": 400, "physorg": 500, "newscientist": 300,
+        "skynews": 150, "cnn": 200, "abcau": 200,
     },
     "technology": {
-        "bbc": 250,
-        "techcrunch": 300,
-        "npr": 150,
-        "guardian": 300,
-        "arstechnica": 350,
-        "cbsnews": 150,
-        "wired": 300,
-        "cnbc": 250,
+        "bbc": 250, "techcrunch": 300, "npr": 150, "guardian": 300,
+        "arstechnica": 350, "cbsnews": 150, "wired": 300, "cnbc": 250,
         "independent": 200,
+        # 新增
+        "theverge": 400, "cnn": 200, "bloomberg": 200,
+        "physorg": 200, "thehill": 150, "abcau": 150,
     },
     "business": {
-        "bbc": 250,
-        "apnews": 250,
-        "npr": 150,
-        "guardian": 250,
-        "aljazeera": 200,
-        "cbsnews": 150,
-        "cnbc": 350,
-        "independent": 200,
+        "bbc": 250, "apnews": 250, "npr": 150, "guardian": 250,
+        "aljazeera": 200, "cbsnews": 150, "cnbc": 350, "independent": 200,
         "france24": 200,
+        # 新增
+        "reuters": 400, "bloomberg": 300, "thehill": 200,
+        "cnn": 200, "skynews": 150, "abcau": 150,
     },
     "politics": {
-        "bbc": 250,
-        "apnews": 250,
-        "npr": 150,
-        "guardian": 250,
-        "aljazeera": 250,
-        "cbsnews": 150,
-        "independent": 200,
+        "bbc": 250, "apnews": 250, "npr": 150, "guardian": 250,
+        "aljazeera": 250, "cbsnews": 150, "independent": 200,
         "france24": 200,
+        # 新增
+        "reuters": 300, "politico": 500, "thehill": 400,
+        "cnn": 300, "skynews": 200, "abcau": 200,
     },
     "sports": {
-        "bbc": 300,
-        "apnews": 200,
-        "guardian": 300,
-        "aljazeera": 200,
+        "bbc": 300, "apnews": 200, "guardian": 300, "aljazeera": 200,
+        # 新增
+        "espn": 600, "cnn": 150, "skynews": 200, "abcau": 150,
     },
     "world": {
-        "aljazeera": 300,
-        "guardian": 300,
-        "apnews": 200,
-        "france24": 250,
-        "independent": 200,
+        "aljazeera": 300, "guardian": 300, "apnews": 200,
+        "france24": 250, "independent": 200,
+        # 新增
+        "reuters": 400, "cnn": 300, "skynews": 300,
+        "abcau": 250, "bbc": 200,
     },
 }
 
