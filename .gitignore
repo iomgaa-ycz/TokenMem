@@ -1,0 +1,3 @@
+data/news/*.jsonl
+data/v2/*.jsonl
+logs/
