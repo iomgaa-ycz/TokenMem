@@ -1,3 +1,25 @@
+# Data
 data/news/*.jsonl
 data/v2/*.jsonl
+
+# Logs & Coverage
 logs/
+.coverage
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Claude Code local config
+.claude/
+
+# Syncthing
+.stfolder/
+
+# Reference materials (large external repos & PDFs)
+Reference/
