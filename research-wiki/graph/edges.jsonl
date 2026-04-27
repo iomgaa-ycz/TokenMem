@@ -1,0 +1,17 @@
+{"from": "idea:001", "to": "paper:explicitlm2025", "type": "inspired_by", "evidence": "TokenMem延续ExplicitLM的token级记忆理念，改为冻结LLM+轻量SFT方案"}
+{"from": "idea:001", "to": "paper:decoupledrag2025", "type": "inspired_by", "evidence": "TokenMem的cross-attention注入机制直接借鉴DecoupledRAG（代码验证：基座冻结+只训练gate_crossattention）"}
+{"from": "idea:001", "to": "paper:lample2019_pkm", "type": "inspired_by", "evidence": "Product Key检索结构来源（当前用FAISS替代，PKM留future work）"}
+{"from": "idea:001", "to": "gap:G1", "type": "addresses_gap", "evidence": "6模型×3家族验证"}
+{"from": "idea:001", "to": "gap:G2", "type": "addresses_gap", "evidence": "冻结LLM+SFT即插即用"}
+{"from": "idea:001", "to": "gap:G3", "type": "addresses_gap", "evidence": "完整检索→融合→更新pipeline"}
+{"from": "idea:001", "to": "gap:G4", "type": "addresses_gap", "evidence": "运行时增删编辑，无需重训练"}
+{"from": "idea:001", "to": "gap:G5", "type": "addresses_gap", "evidence": "News SFT→MedQA/ARC/MMLU跨域泛化"}
+{"from": "paper:decoupledrag2025", "to": "paper:explicitlm2025", "type": "contradicts", "evidence": "DecoupledRAG证明cross-attention注入足够（不需预训练记忆库），与ExplicitLM的联合预训练路线不同"}
+{"from": "paper:explicitlm2025", "to": "paper:lample2019_pkm", "type": "extends", "evidence": "ExplicitLM将PKM的product key检索应用到百万级显式token记忆库"}
+{"from": "paper:kblam2025", "to": "paper:decoupledrag2025", "type": "extends", "evidence": "KBLaM和DecoupledRAG都做cross-attention知识注入，但KBLaM聚焦结构化KB三元组"}
+{"from": "paper:kcapsules2026", "to": "paper:kblam2025", "type": "extends", "evidence": "Knowledge Capsules扩展了KBLaM的KV注入思路，加入图结构和溯源"}
+{"from": "paper:mplus2025", "to": "paper:memoryllm2024", "type": "extends", "evidence": "M+在MemoryLLM基础上加入co-trained retriever扩展到160K+ tokens"}
+{"from": "paper:fwpkm2026", "to": "paper:lample2019_pkm", "type": "extends", "evidence": "FwPKM将PKM扩展为动态fast-weight记忆，支持在线梯度更新"}
+{"from": "paper:tokmem2025", "to": "paper:memoryllm2024", "type": "extends", "evidence": "TokMem将过程编译为单个memory token，与MemoryLLM的隐式记忆思路不同但互补"}
+{"from": "idea:002", "to": "gap:G1", "type": "addresses_gap", "evidence": "MemoryBridge纯跨模型方案"}
+{"from": "idea:003", "to": "gap:G4", "type": "addresses_gap", "evidence": "EditMem纯编辑方案"}
