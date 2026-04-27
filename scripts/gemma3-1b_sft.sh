@@ -18,6 +18,7 @@ export CUDA_VISIBLE_DEVICES
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+export PYTHONPATH="${ROOT}:${PYTHONPATH:-}"
 mkdir -p logs
 
 python -m accelerate.commands.launch \
