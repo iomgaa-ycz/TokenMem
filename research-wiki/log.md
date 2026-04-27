@@ -46,3 +46,26 @@
 - **Review**: spec + code quality双重审查通过，修复了阈值`>`→`>=`、retrieve边界检查等问题
 - **分支**: `feat/token-memory-bank`
 - **Spec**: `docs/superpowers/specs/2026-04-26-token-memory-bank-design.md`
+
+## 2026-04-27 — GateCrossAttention 知识融合模块实现完成
+
+- **架构决策**: 完全复刻DecoupledRAG (WWW 2025)
+  - LinearFusion低秩门控（class名LinearFusion，属性名gate_crossattention）
+  - 知识编码: token_ids → frozen LLM全层forward (output_hidden_states) → strided sampling到64 tokens
+  - Cross-attention复用LLM自身QKV权重，不加RoPE，不加causal mask
+  - **全部层注入**（非原提案的4层子集，与DecoupledRAG一致）
+  - Fork transformers modeling文件（非hook注入，非monkey-patch）
+- **实现**:
+  - `memory_lora/linear_fusion.py`: LinearFusion门控 (~50行)
+  - `memory_lora/knowledge_encoder.py`: strided_sampling + compute_knowledge_hidden_states (~100行)
+  - `memory_lora/tokenmem_model.py`: TokenMemForCausalLM包装器 (~120行)
+  - `memory_lora/modified_models/modeling_qwen3.py`: Qwen3 cross-attention支持
+  - `memory_lora/modified_models/modeling_mistral.py`: Mistral cross-attention支持
+  - `memory_lora/modified_models/modeling_gemma3.py`: Gemma3 cross-attention支持
+- **测试**: 81/81 通过（含unit + integration + GPU smoke test）
+- **Smoke test**: Qwen3-0.6B 10步训练loss 2.88→0.77，gate参数有效学习
+- **可训练参数**: Qwen3-0.6B 917K, Qwen3-4B 2.95M, Qwen3-8B 4.72M
+- **关键发现**: from_pretrained的_init_weights会覆盖LinearFusion初始化，需_reinit_gates()恢复
+- **分支**: `feat/gate-cross-attention`
+- **Spec**: `docs/superpowers/specs/2026-04-27-gate-cross-attention-design.md`
+- **已更新文档**: FINAL_PROPOSAL.md, EXPERIMENT_PLAN.md, TIMELINE.md, IDEA_REPORT.md（修正注入层数、参数量、类名）

@@ -90,15 +90,14 @@ DecoupledRAG的训练方式（代码确认）：
             └──────┬───────────────────────┘
                    │ FAISS余弦检索 top-k
                    ▼
-          token_ids → frozen LLM → KV表示
+          token_ids → frozen LLM → 逐层hidden states (strided sampling)
                    │
                    ▼
-        ┌────────────────────────────┐
-        │  Frozen LLM                │
-        │  + gate_crossattention     │
-        │    (融合权重, 唯一可训练)    │
-        │  注入于均匀分布的4层         │
-        └────────────────────────────┘
+        ┌──────────────────────────────────────┐
+        │  Frozen LLM + LinearFusion门控       │
+        │  (gate_crossattention, 唯一可训练)    │
+        │  全部层注入(复用LLM自身QKV做cross-attn)│
+        └──────────────────────────────────────┘
                    │
                    ▼
                 Output

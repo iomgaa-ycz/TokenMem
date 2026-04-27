@@ -86,36 +86,35 @@ class TokenMemoryBank:
 
 - 用LLM embedding层或sentence-transformers计算知识条目的embedding
 - FAISS索引: bank < 100K用flat brute-force, > 100K用IVF-PQ
-- 检索top-k条目的预计算KV缓存用于cross-attention注入
+- 检索top-k条目的token_ids → frozen LLM全层forward → 逐层hidden states → strided sampling → cross-attention注入
 - PKM留作future work（需要解决key聚类平衡性问题）
 
 ### 4. 知识融合: Cross-Attention（借鉴DecoupledRAG）
 
 ```python
-class GateCrossAttention(nn.Module):
-    """每个注入层的融合模块（唯一可训练组件）"""
+class LinearFusion(nn.Module):
+    """每个注入层的融合门控（唯一可训练组件，照搬 DecoupledRAG）"""
 
-    def __init__(self, hidden_dim, rank=16, alpha=32):
-        # 零初始化低秩融合权重（DecoupledRAG的W_β设计）
-        self.A = nn.Linear(hidden_dim, rank, bias=False)   # Gaussian init σ=0.01
-        self.B = nn.Linear(rank, hidden_dim, bias=False)   # Zero init
-        self.alpha = alpha / rank  # scaling factor
-        self.dropout = nn.Dropout(0.2)
+    def __init__(self, hidden_dim, rank=16, alpha=32, dropout_prob=0.2):
+        self.W_A = Parameter(randn(hidden_dim, rank) * 0.01)   # Gaussian σ=0.01
+        self.W_B = Parameter(zeros(rank, hidden_dim))            # Zero init
+        self.alpha = alpha
+        self.dropout_prob = dropout_prob
 
-    def forward(self, hidden_int, hidden_ext):
-        """
-        hidden_int: 内部self-attention输出 [B, seq, D]
-        hidden_ext: 外部cross-attention输出 [B, seq, D]
-        """
-        fusion = self.alpha * self.B(self.dropout(self.A(hidden_ext)))
-        return hidden_int + fusion
+    def forward(self, A, B):
+        """A: residual (self-attn+FFN), B: cross-attention output → A + alpha*(dropout(B)@W_A@W_B)"""
+        B = dropout(B, p=self.dropout_prob, training=self.training)
+        return A + self.alpha * (B @ self.W_A @ self.W_B)
 ```
 
-**设计要点**（与DecoupledRAG一致，代码验证）:
+**设计要点**（完全复刻 DecoupledRAG，已实现并验证）:
 - 基座LLM**完全冻结**，不使用LoRA微调基座
-- 只训练GateCrossAttention（融合权重）
-- B矩阵零初始化 → t=0时融合输出为零 → LLM原始能力完整保留
-- 注入位置：模型层均匀分布的4层（如28层模型的[6,12,18,24]）
+- 只训练LinearFusion门控权重（每层一个，属性名 `gate_crossattention`）
+- W_B零初始化 → t=0时融合输出为零 → LLM原始能力完整保留
+- **注入位置：全部层**（与DecoupledRAG一致，非4层子集）
+- 知识编码：token_ids → frozen LLM全层forward(`output_hidden_states=True`) → 逐层hidden states → strided sampling到64 tokens
+- Cross-attention复用LLM自身QKV权重，不加RoPE，不加causal mask
+- 实现：fork transformers modeling文件（`memory_lora/modified_models/modeling_qwen3/mistral/gemma3.py`）
 
 ### 5. 训练策略: 一次SFT，跨域泛化
 
@@ -125,7 +124,7 @@ class GateCrossAttention(nn.Module):
   每条: question通过FAISS检索到knowledge → cross-attention(检索到的知识token_ids → 实时编码为KV) → 预测answer
 
 训练配置:
-  可训练: 仅GateCrossAttention（各注入层的融合权重）
+  可训练: 仅LinearFusion门控（每层的gate_crossattention, ~1-5M参数）
   冻结: 基座LLM全部参数
   epochs: 5
   lr: 1e-3

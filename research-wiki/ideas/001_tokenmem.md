@@ -15,9 +15,10 @@ added: 2026-04-26T00:00:00Z
 
 ## Core Components
 
-1. **TokenMemoryBank** (per-model): 内置tokenizer + FAISS索引 + token_ids/emb存储 + 软删除/compact（已实现: `memory_lora/token_bank.py`）
-2. **GateCrossAttention**: 零初始化低秩融合（借鉴DecoupledRAG）
-3. **知识管理**: add/edit/delete/audit/migrate_to，通过migrate_to()导出文本跨模型迁移
+1. **TokenMemoryBank** (per-model): 内置tokenizer + FAISS索引 + token_ids/emb存储 + 软删除/compact（已实现: `memory_lora/token_bank.py`, 56/56 tests）
+2. **LinearFusion** (gate_crossattention): 零初始化低秩门控融合，完全复刻DecoupledRAG。全部层注入，fork transformers modeling文件（已实现: `memory_lora/linear_fusion.py` + `modified_models/modeling_qwen3|mistral|gemma3.py`, 81/81 tests）
+3. **TokenMemForCausalLM**: 包装器，管理frozen base + trainable gates + 知识编码（已实现: `memory_lora/tokenmem_model.py`, smoke test loss 2.88→0.77）
+4. **知识管理**: add/edit/delete/audit/migrate_to，通过migrate_to()导出文本跨模型迁移
 
 ## Inspired By
 

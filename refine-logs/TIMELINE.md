@@ -26,8 +26,8 @@ Day 7 ██████████  修改 + 排版 + 提交
 
 | 时段 | 任务 | 负责 | GPU | 产出 | 依赖 |
 |------|------|------|-----|------|------|
-| 上午 | 实现TokenMemoryBank类(token_ids+emb存储) | 编码 | 本地 | `memory_lora/token_bank.py` | 无 |
-| 上午 | 实现GateCrossAttention模块 | 编码 | 本地 | `memory_lora/gate_crossattention.py` | 无 |
+| 上午 | ✅ 实现TokenMemoryBank类(token_ids+emb存储) | 编码 | 本地 | `memory_lora/token_bank.py` (56/56 tests) | 无 |
+| 上午 | ✅ 实现知识融合模块(LinearFusion+modified modeling) | 编码 | 本地 | `memory_lora/linear_fusion.py`, `modified_models/`, `tokenmem_model.py` (81/81 tests, smoke通过) | 无 |
 | 上午 | News数据集扩展到60K | 脚本 | 本地 | `data/news/qa_full_60k.jsonl` | 无 |
 | 下午 | 适配HuggingFace框架(6模型加载) | 编码 | 本地 | `memory_lora/adapters/` | TokenMemoryBank |
 | 下午 | 实现SFT训练脚本 | 编码 | 本地 | `training/sft.py` | GateCrossAttention |
