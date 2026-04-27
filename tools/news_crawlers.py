@@ -1389,40 +1389,53 @@ RSS_FEEDS: Dict[str, List[Dict[str, str]]] = {
         {"url": "https://rss.arxiv.org/rss/cs.AI", "source": "arxiv"},
         {"url": "https://www.newscientist.com/section/news/feed/", "source": "newscientist"},
         {"url": "https://phys.org/rss-feed/science-news/", "source": "physorg"},
-        {"url": "https://news.google.com/rss/search?q=science+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=science+discovery+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=research+breakthrough+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=NASA+space+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=climate+environment+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
     ],
     "technology": [
         {"url": "https://feeds.bbci.co.uk/news/technology/rss.xml", "source": "bbc"},
         {"url": "https://techcrunch.com/feed/", "source": "techcrunch"},
         {"url": "https://feeds.arstechnica.com/arstechnica/index", "source": "arstechnica"},
         {"url": "https://www.theverge.com/rss/index.xml", "source": "theverge"},
-        {"url": "https://news.google.com/rss/search?q=technology+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
         {"url": "https://hnrss.org/frontpage?points=50", "source": "hackernews"},
+        {"url": "https://news.google.com/rss/search?q=artificial+intelligence+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=cybersecurity+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=tech+startup+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
     ],
     "business": [
         {"url": "https://feeds.bbci.co.uk/news/business/rss.xml", "source": "bbc"},
         {"url": "https://rss.cnn.com/rss/edition_business.rss", "source": "cnn"},
-        {"url": "https://news.google.com/rss/search?q=business+economy+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
         {"url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "source": "cnbc"},
+        {"url": "https://news.google.com/rss/search?q=economy+market+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=trade+tariff+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=finance+investment+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
     ],
     "politics": [
         {"url": "https://feeds.bbci.co.uk/news/politics/rss.xml", "source": "bbc"},
         {"url": "https://rss.cnn.com/rss/edition_world.rss", "source": "cnn"},
-        {"url": "https://news.google.com/rss/search?q=politics+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
         {"url": "https://rss.politico.com/politics-news.xml", "source": "politico"},
+        {"url": "https://news.google.com/rss/search?q=election+politics+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=congress+legislation+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=geopolitics+diplomacy+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
     ],
     "sports": [
         {"url": "https://feeds.bbci.co.uk/sport/rss.xml", "source": "bbc"},
         {"url": "https://rss.cnn.com/rss/edition_sport.rss", "source": "cnn"},
-        {"url": "https://news.google.com/rss/search?q=sports+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
         {"url": "https://www.espn.com/espn/rss/news", "source": "espn"},
+        {"url": "https://news.google.com/rss/search?q=NBA+NFL+sports+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=FIFA+soccer+football+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=Olympics+athletics+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
     ],
     "world": [
         {"url": "https://feeds.bbci.co.uk/news/world/rss.xml", "source": "bbc"},
         {"url": "https://rss.cnn.com/rss/edition.rss", "source": "cnn"},
-        {"url": "https://news.google.com/rss?topic=WORLD&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
         {"url": "https://www.aljazeera.com/xml/rss/all.xml", "source": "aljazeera"},
         {"url": "https://www.france24.com/en/rss", "source": "france24"},
+        {"url": "https://news.google.com/rss?topic=WORLD&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=international+news+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://news.google.com/rss/search?q=conflict+war+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
     ],
 }
 
@@ -1518,6 +1531,15 @@ async def crawl_rss_feeds(
                 link = entry.get("link", "")
                 if not link:
                     continue
+
+                # Google News URL 解码：获取实际文章 URL
+                if "news.google.com" in link:
+                    try:
+                        from googlenewsdecoder import new_decoderv1
+                        decoded = new_decoderv1(link)
+                        link = decoded.get("decoded_url", link)
+                    except Exception:
+                        continue
 
                 url_key = link.rstrip("/")
                 title = entry.get("title", "")
