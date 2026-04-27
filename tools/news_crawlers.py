@@ -51,6 +51,8 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 import trafilatura  # noqa: E402
+import feedparser  # noqa: E402
+import requests as _requests  # noqa: E402
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -1374,6 +1376,192 @@ async def crawl_all_sites(
                         total_written += 1
 
     logger.info("爬取完成，共写入 %d 篇文章 → %s", total_written, output_path)
+    return total_written
+
+
+# ---------------------------------------------------------------------------
+# RSS 聚合补量
+# ---------------------------------------------------------------------------
+
+RSS_FEEDS: Dict[str, List[Dict[str, str]]] = {
+    "science": [
+        {"url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", "source": "bbc"},
+        {"url": "https://rss.arxiv.org/rss/cs.AI", "source": "arxiv"},
+        {"url": "https://www.newscientist.com/section/news/feed/", "source": "newscientist"},
+        {"url": "https://phys.org/rss-feed/science-news/", "source": "physorg"},
+        {"url": "https://news.google.com/rss/search?q=science+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+    ],
+    "technology": [
+        {"url": "https://feeds.bbci.co.uk/news/technology/rss.xml", "source": "bbc"},
+        {"url": "https://techcrunch.com/feed/", "source": "techcrunch"},
+        {"url": "https://feeds.arstechnica.com/arstechnica/index", "source": "arstechnica"},
+        {"url": "https://www.theverge.com/rss/index.xml", "source": "theverge"},
+        {"url": "https://news.google.com/rss/search?q=technology+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://hnrss.org/frontpage?points=50", "source": "hackernews"},
+    ],
+    "business": [
+        {"url": "https://feeds.bbci.co.uk/news/business/rss.xml", "source": "bbc"},
+        {"url": "https://rss.cnn.com/rss/edition_business.rss", "source": "cnn"},
+        {"url": "https://news.google.com/rss/search?q=business+economy+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "source": "cnbc"},
+    ],
+    "politics": [
+        {"url": "https://feeds.bbci.co.uk/news/politics/rss.xml", "source": "bbc"},
+        {"url": "https://rss.cnn.com/rss/edition_world.rss", "source": "cnn"},
+        {"url": "https://news.google.com/rss/search?q=politics+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://rss.politico.com/politics-news.xml", "source": "politico"},
+    ],
+    "sports": [
+        {"url": "https://feeds.bbci.co.uk/sport/rss.xml", "source": "bbc"},
+        {"url": "https://rss.cnn.com/rss/edition_sport.rss", "source": "cnn"},
+        {"url": "https://news.google.com/rss/search?q=sports+2026&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://www.espn.com/espn/rss/news", "source": "espn"},
+    ],
+    "world": [
+        {"url": "https://feeds.bbci.co.uk/news/world/rss.xml", "source": "bbc"},
+        {"url": "https://rss.cnn.com/rss/edition.rss", "source": "cnn"},
+        {"url": "https://news.google.com/rss?topic=WORLD&hl=en&gl=US&ceid=US:en", "source": "googlenews"},
+        {"url": "https://www.aljazeera.com/xml/rss/all.xml", "source": "aljazeera"},
+        {"url": "https://www.france24.com/en/rss", "source": "france24"},
+    ],
+}
+
+
+def _fetch_article_text(url: str, timeout: int = 15) -> Optional[str]:
+    """用 requests + trafilatura 提取文章正文（无需浏览器）。
+
+    参数：
+        url:     文章 URL。
+        timeout: HTTP 请求超时秒数。
+
+    返回：
+        提取到的正文文本，失败时返回 None。
+    """
+    try:
+        resp = _requests.get(
+            url,
+            timeout=timeout,
+            allow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)"},
+        )
+        if resp.status_code != 200:
+            return None
+        text = trafilatura.extract(resp.text)
+        return text if text and len(text) >= 200 else None
+    except Exception:
+        return None
+
+
+def _extract_title_from_html(html: str) -> str:
+    """从 HTML 中提取标题。"""
+    m = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+    if m:
+        raw = re.sub(r"<[^>]+>", "", m.group(1)).strip()
+        return re.split(r"\s*[-|]\s*", raw)[0].strip()
+    return ""
+
+
+async def crawl_rss_feeds(
+    output_path: str,
+    max_per_feed: int = 100,
+    min_date: str = "2025-01-01",
+) -> int:
+    """通过 RSS/Atom feed 聚合爬取新闻文章，追加到 JSONL。
+
+    参数：
+        output_path:  输出 JSONL 文件路径。
+        max_per_feed: 每个 feed 最多处理的条目数。
+        min_date:     最早发布日期过滤。
+
+    返回：
+        新写入的文章数。
+    """
+    import time as _time
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    seen_titles: set[str] = set()
+    seen_urls: set[str] = set()
+    if output.exists():
+        with output.open("r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    art = json.loads(line)
+                    title_key = art.get("title", "").lower()[:80]
+                    url_key = art.get("url", "").rstrip("/")
+                    if title_key:
+                        seen_titles.add(title_key)
+                    if url_key:
+                        seen_urls.add(url_key)
+                except json.JSONDecodeError:
+                    pass
+        logger.info("RSS: 预加载 %d 标题, %d URL", len(seen_titles), len(seen_urls))
+
+    total_written = 0
+    for category, feeds in RSS_FEEDS.items():
+        for feed_info in feeds:
+            feed_url = feed_info["url"]
+            source = feed_info["source"]
+            logger.info("RSS: 解析 %s / %s → %s", source, category, feed_url)
+
+            try:
+                parsed = feedparser.parse(feed_url)
+            except Exception as exc:
+                logger.warning("RSS 解析失败 %s: %s", feed_url, exc)
+                continue
+
+            entries = parsed.entries[:max_per_feed]
+            logger.info("RSS: %s / %s 获得 %d 条目", source, category, len(entries))
+
+            for entry in entries:
+                link = entry.get("link", "")
+                if not link:
+                    continue
+
+                url_key = link.rstrip("/")
+                title = entry.get("title", "")
+                title_key = title.lower()[:80]
+
+                if url_key in seen_urls or title_key in seen_titles:
+                    continue
+
+                body = _fetch_article_text(link)
+                if not body:
+                    continue
+
+                date = ""
+                if hasattr(entry, "published_parsed") and entry.published_parsed:
+                    date = _time.strftime("%Y-%m-%d", entry.published_parsed)
+                elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
+                    date = _time.strftime("%Y-%m-%d", entry.updated_parsed)
+
+                if date and date < min_date:
+                    continue
+
+                article = Article(
+                    id=hashlib.md5(link.encode()).hexdigest()[:8],
+                    title=title,
+                    body=body,
+                    source=source,
+                    date=date,
+                    category=category,
+                    url=link,
+                )
+
+                if not article.is_valid():
+                    continue
+
+                seen_titles.add(title_key)
+                seen_urls.add(url_key)
+
+                with output.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(article.to_dict(), ensure_ascii=False) + "\n")
+                total_written += 1
+
+            logger.info("RSS: %s / %s 写入后累计新增 %d 篇", source, category, total_written)
+
+    logger.info("RSS 爬取完成，共新增 %d 篇文章 → %s", total_written, output_path)
     return total_written
 
 
