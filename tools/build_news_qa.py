@@ -210,6 +210,7 @@ async def extract_passages_from_article(
                 {"role": "user", "content": _EXTRACT_PASSAGES_PROMPT + body},
             ],
             temperature=0.3,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         raw: str = resp.choices[0].message.content or ""
         passages: Optional[List] = parse_llm_json_response(raw, key="passages")
@@ -303,6 +304,7 @@ async def generate_qa_from_passage(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         raw: str = resp.choices[0].message.content or ""
 
@@ -413,6 +415,7 @@ async def generate_distractors(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         raw: str = resp.choices[0].message.content or ""
         distractors: Optional[List] = parse_llm_json_response(raw, key="distractors")
@@ -447,7 +450,7 @@ def _assemble_mcq(answer: str, distractors: List[str]) -> Dict[str, Any]:
 # Step 编排（批量异步）
 # ─────────────────────────────────────────────────────────────────────────────
 
-_SEMAPHORE_SIZE = 8
+_SEMAPHORE_SIZE = 5
 _BATCH_SIZE = 50  # 每批并发处理的条目数
 
 

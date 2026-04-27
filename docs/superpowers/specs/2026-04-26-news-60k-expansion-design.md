@@ -37,8 +37,8 @@
 
 | 源 (Reference/Memory-LoRA-old/) | 目标 (Memory-LoRA/) | 改动 |
 |------|------|------|
-| `tools/build_news_qa.py` | `tools/build_news_qa.py` | 调整 import、日志对接 |
-| `tools/news_crawlers.py` | `tools/news_crawlers.py` | 调整 import、扩展新源 |
+| `tools/build_news_qa.py` | `tools/build_news_qa.py` | 最小适配：修 import 路径、.env 读取路径 |
+| `tools/news_crawlers.py` | `tools/news_crawlers.py` | 最小适配 + 扩展新源 |
 | `tools/__init__.py` | `tools/__init__.py` | 新建 |
 
 不迁移: `build_fusion_bank.py`、`build_oracle_map.py`、`build_knowledge_jsonl.py`（后续阶段按需迁移）
