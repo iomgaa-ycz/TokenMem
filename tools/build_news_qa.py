@@ -1003,6 +1003,16 @@ async def run_pipeline(
             )
             logger.info("Step 0 完成：写入 %d 篇文章", count)
 
+            # RSS 补充爬取
+            from tools.news_crawlers import crawl_rss_feeds  # noqa: PLC0415
+
+            logger.info("Step 0-RSS: RSS 聚合补充爬取…")
+            rss_count = await crawl_rss_feeds(
+                output_path=str(raw_path),
+                max_per_feed=200,
+            )
+            logger.info("Step 0-RSS 完成：新增 %d 篇文章", rss_count)
+
     if 1 in step_list:
         if resume and passages_path.exists():
             logger.info("Step 1 跳过（输出文件已存在）")
