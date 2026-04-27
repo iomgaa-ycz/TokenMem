@@ -15,7 +15,9 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any, List, Tuple
+from typing import List, Tuple
+
+from transformers import PreTrainedTokenizerBase
 
 import faiss
 import numpy as np
@@ -36,10 +38,10 @@ class TokenMemoryBank:
 
     def __init__(
         self,
-        tokenizer: Any,
+        tokenizer: PreTrainedTokenizerBase,
+        emb_dim: int,
         capacity: int = 1_000_000,
         fusion_length: int = 256,
-        emb_dim: int = 1024,
         device: torch.device = torch.device("cpu"),
         compact_threshold: float = 0.3,
     ):
@@ -159,7 +161,8 @@ class TokenMemoryBank:
         """
         # 检查容量（考虑 compact 可能回收空间）
         if self._n + len(entries) > self.capacity:
-            self._compact()
+            if self._n_deleted > 0:
+                self._compact()
             if self._n + len(entries) > self.capacity:
                 raise RuntimeError(
                     f"TokenMemoryBank full: capacity={self.capacity}, "
@@ -223,7 +226,9 @@ class TokenMemoryBank:
     # ─────────────────────────────────────────────
 
     def get_token_ids(self, entry_ids: LongTensor) -> LongTensor:
-        """批量获取 token_ids。
+        """批量获取 token_ids，供推理时 frozen LLM 前向计算 KV 用。
+
+        调用方必须保证所有 entry_id 有效且未删除（通常由 retrieve 返回）。
 
         参数：
             entry_ids: 1D [B] 或 2D [B, k] 的 entry id 张量
@@ -255,9 +260,13 @@ class TokenMemoryBank:
 
         异常：
             RuntimeError: bank 为空
+            ValueError: k 超出活跃条目数
         """
-        if len(self) == 0:
+        n_alive = len(self)
+        if n_alive == 0:
             raise RuntimeError("TokenMemoryBank empty — cannot retrieve")
+        if k > n_alive:
+            raise ValueError(f"k={k} exceeds active entry count {n_alive}")
 
         # L2-normalize 查询
         q_np = query_emb.detach().float().cpu().numpy()
@@ -380,7 +389,7 @@ class TokenMemoryBank:
 
     def _maybe_compact(self) -> None:
         """检查删除比例是否超过阈值，超过则触发 compact。"""
-        if self._n > 0 and self._n_deleted / self._n > self.compact_threshold:
+        if self._n > 0 and self._n_deleted / self._n >= self.compact_threshold:
             self._compact()
 
     def _compact(self) -> None:

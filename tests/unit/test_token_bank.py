@@ -330,6 +330,13 @@ class TestRetrieve:
         with pytest.raises(RuntimeError, match="empty"):
             bank.retrieve(query, k=1)
 
+    def test_k_exceeds_active_raises(self, bank: TokenMemoryBank):
+        """k 超出活跃条目数时抛 ValueError。"""
+        bank.add(_make_entries(3))
+        query = torch.randn(1, 64)
+        with pytest.raises(ValueError, match="exceeds"):
+            bank.retrieve(query, k=10)
+
 
 # ─────────────────────────────────────────────
 # TestEdit
@@ -424,7 +431,6 @@ class TestAudit:
 
     def test_deleted_id_raises(self, tokenizer):
         """已删除 entry 抛 ValueError。"""
-        # 使用高 compact_threshold 避免自动 compact
         b = TokenMemoryBank(
             tokenizer=tokenizer,
             capacity=100,
@@ -432,7 +438,7 @@ class TestAudit:
             emb_dim=64,
             compact_threshold=1.0,
         )
-        b.add(_make_entries(1))
+        b.add(_make_entries(3))
         b.delete(0)
         with pytest.raises(ValueError, match="deleted"):
             b.audit(0)
@@ -546,14 +552,13 @@ class TestCompact:
             compact_threshold=0.3,
         )
         b.add(_make_entries(10))
-        # 逐条删除，第 4 条时 4/10 = 0.4 > 0.3 触发 compact
+        # 逐条删除，第 3 条时 3/10 = 0.3 >= 0.3 触发 compact
         b.delete(0)  # 1/10 = 0.1
         b.delete(1)  # 2/10 = 0.2
-        b.delete(2)  # 3/10 = 0.3 — 不触发（>=，非 >）
         assert b._n == 10  # compact 未触发
-        b.delete(3)  # 4/10 = 0.4 > 0.3 — 触发
+        b.delete(2)  # 3/10 = 0.3 >= 0.3 — 触发 compact
         # compact 后 _n 应该被重置
-        assert b._n == 6
+        assert b._n == 7
         assert b._n_deleted == 0
 
     def test_add_triggers_compact_when_needed(self, tokenizer):
