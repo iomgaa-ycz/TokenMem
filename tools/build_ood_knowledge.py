@@ -187,7 +187,7 @@ def _load_done_ids(output_path: Path) -> set:
             if line:
                 try:
                     obj = json.loads(line)
-                    if "id" in obj:
+                    if "id" in obj and "passage" in obj:
                         done.add(obj["id"])
                 except json.JSONDecodeError:
                     pass
@@ -272,7 +272,7 @@ async def generate_knowledge(
                     sample.get("id", "?"),
                     exc,
                 )
-                await asyncio.sleep(2.0 * (attempt + 1))
+                await asyncio.sleep(2 ** (attempt + 1))
     return None
 
 
@@ -348,7 +348,7 @@ async def run_dataset(dataset_name: str, n_samples: Optional[int] = None) -> int
 
         for sample, result in zip(batch, results):
             if isinstance(result, str) and result:
-                sample["knowledge"] = result
+                sample["passage"] = result
                 _append_jsonl(sample, output_path)
                 success_count += 1
             elif isinstance(result, Exception):
