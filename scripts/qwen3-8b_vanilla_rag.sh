@@ -5,7 +5,12 @@
 #   CUDA_VISIBLE_DEVICES=2 bash scripts/qwen3-8b_vanilla_rag.sh   # 指定 GPU
 #   N_SAMPLES=10 bash scripts/qwen3-8b_vanilla_rag.sh             # smoke test
 set -euo pipefail
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+export PYTHONPATH="${ROOT}:${PYTHONPATH:-}"
+: "${CUDA_VISIBLE_DEVICES:=0}"
+export CUDA_VISIBLE_DEVICES
 N_SAMPLES=${N_SAMPLES:--1}
 
 COMMON="python -m evaluation.eval_baseline \

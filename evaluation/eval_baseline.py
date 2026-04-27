@@ -213,7 +213,7 @@ def run_evaluation(
     logger.info("加载模型: %s", model_path)
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         trust_remote_code=True,
     ).to(device).eval()
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
