@@ -27,8 +27,8 @@
 | Qwen3-1.7B | Qwen | 1.7B | 2048 | 28 | 全部28层 | 1.84M | 同家族scaling |
 | Qwen3-4B | Qwen | 4B | 2560 | 36 | 全部36层 | 2.95M | **默认基线模型** |
 | Qwen3-8B | Qwen | 8B | 4096 | 36 | 全部36层 | 4.72M | 大模型验证 |
-| Gemma3-1B | Google | 1B | 1536 | 26 | 全部26层 | 1.28M | 跨家族 |
-| Ministral-3B | Mistral | 3B | 2560 | 36 | 全部36层 | 2.95M | 跨家族 |
+| Gemma3-1B | Google | 1B | 1152 | 26 | 全部26层 | 0.96M | 跨家族 |
+| Ministral-3B | Mistral | 3B | 2560 | 24 | 全部24层 | 1.97M | 跨家族 | ⚠️ 待下载config后确认 |
 
 注入层策略：**全部层注入**（与DecoupledRAG一致）。E3消融实验中比较1/2/4/全层配置。
 
@@ -40,14 +40,17 @@
 
 ```yaml
 data: News train 50K（时间分割较早文章）
-format: (question, retrieved_knowledge_passage, answer)
+format: (question, passage原文作为knowledge, answer_letter)
 epochs: 5
-optimizer: Adam
+optimizer: Lamb  # 对标 DecoupledRAG（torch_optimizer.Lamb）
 lr: 1e-3
 batch_size: 16
-trainable: 仅GateCrossAttention（per-layer融合权重）
+scheduler: LinearLR(start_factor=1/3, total_iters=10)  # 10步warmup
+trainable: 仅gate_crossattention（per-layer LinearFusion W_A + W_B）
 frozen: 基座LLM全部参数
-gradient_checkpointing: true（4B+模型）
+gradient_checkpointing: false（48GB 4090 无需启用，保留为CLI flag备用）
+知识输入: passage原文直接tokenize（预留compressed_text接口）
+配置方式: 纯CLI args（无YAML），每模型一个sh文件写死全部参数
 ```
 
 ### 预计SFT时间（单卡4090）

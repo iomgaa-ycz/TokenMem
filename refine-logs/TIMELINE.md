@@ -29,8 +29,8 @@ Day 7 ██████████  修改 + 排版 + 提交
 | 上午 | ✅ 实现TokenMemoryBank类(token_ids+emb存储) | 编码 | 本地 | `memory_lora/token_bank.py` (56/56 tests) | 无 |
 | 上午 | ✅ 实现知识融合模块(LinearFusion+modified modeling) | 编码 | 本地 | `memory_lora/linear_fusion.py`, `modified_models/`, `tokenmem_model.py` (81/81 tests, smoke通过) | 无 |
 | 上午 | News数据集扩展到60K | 脚本 | 本地 | `data/news/qa_full_60k.jsonl` | 无 |
-| 下午 | 适配HuggingFace框架(6模型加载) | 编码 | 本地 | `memory_lora/adapters/` | TokenMemoryBank |
-| 下午 | 实现SFT训练脚本 | 编码 | 本地 | `training/sft.py` | GateCrossAttention |
+| 下午 | ✅ 适配HuggingFace框架(6模型加载) | 编码 | 本地 | `tokenmem_model.py`映射+`modeling_ministral.py`+15测试通过 | TokenMemoryBank | ⚠️ 待下载权重后补跑完整GPU测试 |
+| 下午 | ✅ 实现SFT训练脚本 | 编码 | 本地 | `training/sft.py` + `training/data.py` + 6个`scripts/*_sft.sh`（Lamb+LinearLR, smoke通过） | GateCrossAttention |
 | 下午 | News时间分割(50K train/10K test) | 脚本 | 本地 | `data/news/qa_{train,test}.jsonl` | 60K数据 |
 | 晚上 | Smoke test: Qwen3-0.6B SFT | 测试 | 4090 GPU2 | 验证训练流程通 | 全部代码 |
 

@@ -83,18 +83,28 @@ conda run -n ExplicitLLM ruff check xxx --fix
 ```
 
 
-### 2.3 实验入口（sh 文件，M4-A 决定）
+### 2.3 实验入口（sh 文件）
 
-- **单实验入口**：`bash scripts/{model}_{claim}_{semantic}.sh`（如 `qwen3-0.6b_c1_oracle.sh`）
+每个 sh 文件是一个自包含的实验记录，写死全部参数，零参数即可复现（GPU 卡号除外）。
+
+- **SFT 训练**：`bash scripts/{model}_sft.sh`（如 `qwen3-0.6b_sft.sh`）
+  - 调用 `training/sft.py`（纯 CLI args，无 YAML 配置）
+  - 训练参数对标 DecoupledRAG（Lamb lr=1e-3, LinearLR warmup=10）
+  - 6 个模型各一个 sh，参数完全统一（仅模型路径和 ckpt 目录不同）
+- **评测实验**：`bash scripts/{model}_{claim}_{semantic}.sh`（如 `qwen3-0.6b_c1_oracle.sh`）
+  - 调用 `experiments.expN_<name>` 或 `tools.build_*`
 - **tools/ 调用**：`python -m tools.build_fusion_bank ...` 或 `python -m tools.build_oracle_map ...`
-- **实验 py 模块**：`python -m experiments.expN_<name>`（一般由 sh 包装；也可直接调用）
-- **统一 env var**：`MODE` / `DATASETS` / `CUDA_VISIBLE_DEVICES` / `N_SAMPLES` / `CONFIG` / `FORCE_REBUILD`
-- **典型调用**（详见 sh 文件头 Usage 注释）：
+- **统一 env var**：`CUDA_VISIBLE_DEVICES` / `NUM_GPUS` / `MAIN_PROCESS_PORT`（训练），`MODE` / `DATASETS` / `N_SAMPLES`（评测）
+- **典型调用**：
   ```bash
+  # SFT 训练
+  bash scripts/qwen3-0.6b_sft.sh                          # 默认 GPU 0
+  CUDA_VISIBLE_DEVICES=2 bash scripts/qwen3-0.6b_sft.sh   # 指定 GPU
+  CUDA_VISIBLE_DEVICES=2,3 NUM_GPUS=2 bash scripts/qwen3-8b_sft.sh  # 多卡
+
+  # 评测实验
   bash scripts/qwen3-0.6b_c1_oracle.sh                        # default real run
   MODE=mock N_SAMPLES=10 bash scripts/qwen3-0.6b_c1_oracle.sh # smoke test
-  DATASETS="medqa" bash scripts/qwen3-0.6b_c1_oracle.sh       # subset
-  FORCE_REBUILD=1 bash scripts/qwen3-0.6b_c1_oracle.sh        # rebuild prep artifacts
   ```
 
 ## 3. 标准作业程序 (Standard Operating Procedure)
@@ -141,8 +151,9 @@ conda run -n ExplicitLLM ruff check xxx --fix
   - **必须** 不考虑向后兼容，直接修改原文件。代码简洁性优先。
 
 ### 4.2 配置管理规范
-- **优先级**: CLI args > `.env` > YAML，三者统一归口到 dataclass
-- **文件**: `config/default.yaml`（全量非敏感配置，必须写全）, `.env`（敏感信息，不提交）, `.env.example`（模板）
+- **SFT 训练**: 纯 CLI args，所有参数由 sh 文件显式传入（无 YAML 依赖）
+- **评测实验**: CLI args > `.env` > YAML
+- **文件**: `.env`（敏感信息，不提交）, `.env.example`（模板）
 
 ### 4.3 测试组织规范
 - **目录**: `tests/{unit,integration,e2e}/test_*.py`，最低覆盖率 80%
@@ -150,7 +161,7 @@ conda run -n ExplicitLLM ruff check xxx --fix
 
 #### Agent 测试输出规范
 
-> **实验入口**：`bash scripts/{model}_{claim}_{semantic}.sh`（M4-A 决定，`main.py` 已删除）。训练通过 `scripts/` 下的 shell 脚本调用 `training/exp*.py`。
+> **实验入口**：SFT 训练用 `bash scripts/{model}_sft.sh`（调用 `training/sft.py`）；评测用 `bash scripts/{model}_{claim}_{semantic}.sh`。
 > 模块验证通过 `tests/integration/test_{module}_flow.py` + Markdown 报告完成。
 
 | 要素 | 规范 |
