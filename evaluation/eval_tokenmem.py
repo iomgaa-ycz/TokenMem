@@ -5,9 +5,9 @@
 
 与 eval_baseline.py 的核心区别：
 1. 模型类：TokenMemForCausalLM + load_gates() 加载训练好的 gate 权重
-2. 知识注入：passage 通过 knowledge_input_ids cross-attention 注入（而非放入 prompt 文本）
+2. 知识注入：passage 通过 knowledge_outputs cross-attention 注入（预计算一次，复用于所有选项）
 3. prompt 格式：与 no_memory 相同（无 "Reference:" 前缀）
-4. forward 接口：model(input_ids=..., knowledge_input_ids=..., knowledge_attention_mask=...)
+4. forward 接口：model.model(input_ids=..., knowledge_outputs=...) 复用预计算 knowledge
 5. 结果目录：results/tokenmem/
 
 使用示例：
@@ -28,11 +28,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
+
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
+from memory_lora.knowledge_encoder import compute_knowledge_hidden_states
 from memory_lora.tokenmem_model import TokenMemForCausalLM
 
 logger = logging.getLogger(__name__)
@@ -140,21 +142,20 @@ def evaluate_logprob(
     tokenizer: PreTrainedTokenizerBase,
     prompt: str,
     labels: List[str],
-    knowledge_input_ids: torch.Tensor,
-    knowledge_attention_mask: torch.Tensor,
+    knowledge_outputs: List[torch.Tensor],
     device: str = "cuda:0",
 ) -> int:
     """对多选 prompt 进行 loglikelihood 打分，返回最优选项索引。
 
-    与 eval_baseline 相同的 logprob 打分逻辑，但 forward 时传入 knowledge 张量。
+    与 eval_baseline 相同的 logprob 打分逻辑。knowledge_outputs 由调用方预计算一次，
+    4 个选项复用同一份知识编码（参照 DecoupledRAG 的做法）。
 
     参数：
         model: TokenMemForCausalLM 模型（已加载 gate 权重）。
         tokenizer: 对应的 tokenizer。
         prompt: 已格式化的多选 prompt（以 "Answer:" 结尾）。
         labels: 选项标签列表，如 ["A","B","C","D"] 或 ["A","B","C"]。
-        knowledge_input_ids: knowledge token ids，shape [1, K]。
-        knowledge_attention_mask: knowledge attention mask，shape [1, K]。
+        knowledge_outputs: 预计算的逐层知识 hidden states，List[Tensor] × num_layers。
         device: 推理设备。
 
     返回：
@@ -169,10 +170,10 @@ def evaluate_logprob(
         full_ids_list = context_ids + cont_ids
         full_ids = torch.tensor([full_ids_list], dtype=torch.long, device=device)
 
-        outputs = model(
+        # 直接调 model.model，复用预计算的 knowledge_outputs
+        outputs = model.model(
             input_ids=full_ids,
-            knowledge_input_ids=knowledge_input_ids,
-            knowledge_attention_mask=knowledge_attention_mask,
+            knowledge_outputs=knowledge_outputs,
         )
         logits = outputs.logits
 
@@ -308,13 +309,19 @@ def run_evaluation(
             options=options,
         )
 
-        # Phase 3.1: tokenize passage 为 knowledge 张量
+        # Phase 3.1: tokenize passage → 预计算 knowledge_outputs（一次编码，所有选项复用）
         passage: str = sample.get("passage", "")
         knowledge_tensors = tokenize_knowledge(
             tokenizer=tokenizer,
             passage=passage,
             max_len=knowledge_max_len,
             device=device,
+        )
+        knowledge_outputs = compute_knowledge_hidden_states(
+            model.model,
+            knowledge_input_ids=knowledge_tensors["knowledge_input_ids"],
+            knowledge_attention_mask=knowledge_tensors["knowledge_attention_mask"],
+            knowledge_max_seq_len=model.knowledge_max_seq_len,
         )
 
         t0 = time.perf_counter()
@@ -323,8 +330,7 @@ def run_evaluation(
             tokenizer=tokenizer,
             prompt=prompt,
             labels=labels,
-            knowledge_input_ids=knowledge_tensors["knowledge_input_ids"],
-            knowledge_attention_mask=knowledge_tensors["knowledge_attention_mask"],
+            knowledge_outputs=knowledge_outputs,
             device=device,
         )
         latencies.append((time.perf_counter() - t0) * 1000)
