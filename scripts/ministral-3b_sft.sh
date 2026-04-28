@@ -26,9 +26,9 @@ python -m accelerate.commands.launch \
     --mixed_precision bf16 \
     --main_process_port "${MAIN_PROCESS_PORT}" \
     training/sft.py \
-    --model-name-or-path  mistralai/Ministral-8B-Instruct-2410 \
-    --train-jsonl         data/news/qa_train.jsonl \
-    --val-jsonl           data/news/qa_test.jsonl \
+    --model-name-or-path  hugglingface_model/ministral-3-3b \
+    --train-jsonl         data/news/train.jsonl \
+    --val-jsonl           data/news/val.jsonl \
     --ckpt-dir            checkpoints/ministral-3b_sft \
     --epochs              5 \
     --batch-size          16 \

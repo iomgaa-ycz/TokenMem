@@ -26,9 +26,9 @@ python -m accelerate.commands.launch \
     --mixed_precision bf16 \
     --main_process_port "${MAIN_PROCESS_PORT}" \
     training/sft.py \
-    --model-name-or-path  Qwen/Qwen3-4B \
-    --train-jsonl         data/news/qa_train.jsonl \
-    --val-jsonl           data/news/qa_test.jsonl \
+    --model-name-or-path  hugglingface_model/qwen3-4B \
+    --train-jsonl         data/news/train.jsonl \
+    --val-jsonl           data/news/val.jsonl \
     --ckpt-dir            checkpoints/qwen3-4b_sft \
     --epochs              5 \
     --batch-size          16 \
