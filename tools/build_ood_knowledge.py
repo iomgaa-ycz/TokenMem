@@ -60,6 +60,11 @@ _DATASET_REGISTRY: Dict[str, Dict[str, Any]] = {
         "config": "ARC-Challenge",
         "split": "test",
     },
+    "arc_easy": {
+        "path": "allenai/ai2_arc",
+        "config": "ARC-Easy",
+        "split": "test",
+    },
     "mmlu": {
         "path": "cais/mmlu",
         "config": "all",
@@ -135,6 +140,27 @@ def convert_arc(row: Dict[str, Any], idx: int) -> Dict[str, Any]:
     }
 
 
+def convert_arc_easy(row: Dict[str, Any], idx: int) -> Dict[str, Any]:
+    """将 ARC-Easy HF 行转换为统一格式。
+
+    参数：
+        row: HuggingFace ARC-Easy 数据集的一行（choices.text/label→options, answerKey→correct_letter）。
+        idx: 全局序号，用于生成 ID。
+
+    返回：
+        统一格式字典，包含 id/dataset/question/options/correct_letter。
+    """
+    choices = row["choices"]
+    options = {label: text for label, text in zip(choices["label"], choices["text"])}
+    return {
+        "id": f"arc_easy_{idx:05d}",
+        "dataset": "arc_easy",
+        "question": row["question"],
+        "options": options,
+        "correct_letter": row["answerKey"],
+    }
+
+
 def convert_mmlu(row: Dict[str, Any], idx: int) -> Dict[str, Any]:
     """将 MMLU HF 行转换为统一格式。
 
@@ -160,6 +186,7 @@ def convert_mmlu(row: Dict[str, Any], idx: int) -> Dict[str, Any]:
 _CONVERTER_MAP = {
     "medqa": convert_medqa,
     "arc": convert_arc,
+    "arc_easy": convert_arc_easy,
     "mmlu": convert_mmlu,
 }
 
@@ -376,7 +403,7 @@ def main() -> None:
         "--dataset",
         type=str,
         required=True,
-        choices=["medqa", "arc", "mmlu", "all"],
+        choices=["medqa", "arc", "arc_easy", "mmlu", "all"],
         help="要处理的数据集名称（或 'all' 处理全部）",
     )
     parser.add_argument(
