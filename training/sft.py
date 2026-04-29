@@ -159,6 +159,19 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="反事实数据过采样倍数 (默认: 1)",
     )
+    p.add_argument(
+        "--load-gates",
+        type=str,
+        default=None,
+        help="加载已有 gate 权重的目录路径（用于 Phase 2 curriculum 训练）",
+    )
+    p.add_argument(
+        "--cf-val-jsonl",
+        type=str,
+        nargs="+",
+        default=None,
+        help="反事实验证集 JSONL 路径（可传多个，用于分开追踪 CF val_loss）",
+    )
     p.add_argument("--seed", type=int, default=42, help="随机种子 (默认: 42)")
 
     return p.parse_args()
@@ -450,6 +463,12 @@ def train(args: argparse.Namespace) -> None:
 
     _log_param_stats(model, accelerator)
 
+    # --- 加载已有 gate 权重（Curriculum Phase 2）---
+    if args.load_gates:
+        model.load_gates(args.load_gates)
+        if accelerator.is_main_process:
+            logger.info("已加载 gate 权重: %s", args.load_gates)
+
     # --- Tokenizer ---
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name_or_path, trust_remote_code=True
@@ -515,6 +534,27 @@ def train(args: argparse.Namespace) -> None:
         pin_memory=True,
     )
 
+    # --- CF 验证集（可选）---
+    cf_val_loader = None
+    if args.cf_val_jsonl:
+        cf_val_datasets = []
+        for cf_val_path in args.cf_val_jsonl:
+            cf_val_ds = CounterfactualDataset(cf_val_path, split="test")
+            cf_val_datasets.append(cf_val_ds)
+
+        cf_val_dataset = ConcatDataset(cf_val_datasets)
+        cf_val_loader = DataLoader(
+            cf_val_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            collate_fn=collate_fn,
+            pin_memory=True,
+        )
+
+        if accelerator.is_main_process:
+            logger.info("CF 验证集: %d 样本", len(cf_val_dataset))
+
     # --- 优化器 + 调度器 ---
     optimizer = _create_optimizer(model, args)
     scheduler = LinearLR(
@@ -525,9 +565,13 @@ def train(args: argparse.Namespace) -> None:
     )
 
     # --- Accelerator 包装 ---
-    model, optimizer, train_loader, val_loader, scheduler = accelerator.prepare(
-        model, optimizer, train_loader, val_loader, scheduler
-    )
+    prepare_args = [model, optimizer, train_loader, val_loader, scheduler]
+    if cf_val_loader is not None:
+        prepare_args.append(cf_val_loader)
+    prepared = accelerator.prepare(*prepare_args)
+    model, optimizer, train_loader, val_loader, scheduler = prepared[:5]
+    if cf_val_loader is not None:
+        cf_val_loader = prepared[5]
 
     # --- 训练状态 ---
     global_step = 0
@@ -637,6 +681,22 @@ def train(args: argparse.Namespace) -> None:
                         accelerator=accelerator,
                     )
 
+                    # CF 验证（可选）
+                    if cf_val_loader is not None:
+                        cf_val_loss = evaluate(model, cf_val_loader, accelerator)
+                        if accelerator.is_main_process:
+                            logger.info(
+                                "Step %d CF 验证: cf_val_loss=%.4f",
+                                global_step,
+                                cf_val_loss,
+                            )
+                        log_swanlab(
+                            {"val/cf_loss": cf_val_loss},
+                            step=global_step,
+                            args=args,
+                            accelerator=accelerator,
+                        )
+
                     if val_loss < best_val_loss:
                         best_val_loss = val_loss
                         best_path = os.path.join(args.ckpt_dir, "best")
@@ -681,6 +741,22 @@ def train(args: argparse.Namespace) -> None:
             args=args,
             accelerator=accelerator,
         )
+
+        # Epoch 结束 CF 验证（可选）
+        if cf_val_loader is not None:
+            cf_val_loss = evaluate(model, cf_val_loader, accelerator)
+            if accelerator.is_main_process:
+                logger.info(
+                    "Epoch %d CF 验证: cf_val_loss=%.4f",
+                    epoch + 1,
+                    cf_val_loss,
+                )
+            log_swanlab(
+                {"epoch/cf_val_loss": cf_val_loss},
+                step=global_step,
+                args=args,
+                accelerator=accelerator,
+            )
 
         # Epoch 检查点
         epoch_path = os.path.join(args.ckpt_dir, f"epoch_{epoch + 1}")
