@@ -20,11 +20,11 @@ COMMON="python -m evaluation.eval_baseline \
     --n-samples $N_SAMPLES"
 
 echo "=== qwen3-8b / no_memory ==="
-$COMMON --dataset medqa   --data-dir data/ood
-$COMMON --dataset arc     --data-dir data/ood
-$COMMON --dataset mmlu    --data-dir data/ood
+# $COMMON --dataset medqa   --data-dir data/ood
+# $COMMON --dataset arc     --data-dir data/ood
+# $COMMON --dataset mmlu    --data-dir data/ood
 
 # News（数据集就绪后取消注释）
-# $COMMON --dataset news --data-dir data/news
+$COMMON --dataset news --data-dir data/news
 
 echo "=== qwen3-8b / no_memory 完成 ==="
