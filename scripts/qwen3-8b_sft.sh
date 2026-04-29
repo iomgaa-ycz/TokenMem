@@ -32,11 +32,11 @@ python -m accelerate.commands.launch \
     --cf-oversample       2 \
     --val-jsonl           data/news/val.jsonl \
     --ckpt-dir            checkpoints/qwen3-8b_sft \
-    --epochs              10 \
+    --epochs              5 \
     --batch-size          32 \
     --lr                  1e-3 \
-    --weight-decay        0.0 \
-    --grad-clip           0.0 \
+    --weight-decay        0.01 \
+    --grad-clip           1.0 \
     --grad-accum-steps    1 \
     --max-seq-len         64 \
     --knowledge-max-len   256 \

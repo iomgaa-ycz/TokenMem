@@ -28,7 +28,7 @@ class LinearFusion(nn.Module):
         hidden_dim: int,
         rank: int = 16,
         alpha: int = 32,
-        dropout_prob: float = 0.2,
+        dropout_prob: float = 0.25,
     ) -> None:
         super().__init__()
         self.W_A = Parameter(torch.randn(hidden_dim, rank) * 0.01)
