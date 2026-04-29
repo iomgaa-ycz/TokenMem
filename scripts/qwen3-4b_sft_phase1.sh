@@ -31,11 +31,11 @@ python -m accelerate.commands.launch \
     --val-jsonl           data/news/val.jsonl \
     --ckpt-dir            checkpoints/qwen3-4b_sft_p1 \
     --epochs              3 \
-    --batch-size          32 \
+    --batch-size          4 \
     --lr                  1e-3 \
     --weight-decay        0.0 \
     --grad-clip           0.0 \
-    --grad-accum-steps    1 \
+    --grad-accum-steps    8 \
     --max-seq-len         512 \
     --knowledge-max-len   256 \
     --knowledge-strided-len 64 \

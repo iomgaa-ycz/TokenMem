@@ -43,11 +43,11 @@ python -m accelerate.commands.launch \
     --cf-val-jsonl        data/counterfactual/arc_easy.jsonl data/counterfactual/medqa.jsonl \
     --ckpt-dir            checkpoints/qwen3-4b_sft_p2 \
     --epochs              5 \
-    --batch-size          32 \
+    --batch-size          4 \
     --lr                  1e-3 \
     --weight-decay        0.0 \
     --grad-clip           0.0 \
-    --grad-accum-steps    1 \
+    --grad-accum-steps    8 \
     --max-seq-len         512 \
     --knowledge-max-len   256 \
     --knowledge-strided-len 64 \
