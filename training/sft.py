@@ -34,12 +34,17 @@ import torch  # noqa: E402
 from accelerate import Accelerator  # noqa: E402
 from accelerate.utils import set_seed  # noqa: E402
 from torch.optim.lr_scheduler import LinearLR  # noqa: E402
-from torch.utils.data import DataLoader  # noqa: E402
+from torch.utils.data import ConcatDataset, DataLoader  # noqa: E402
 from tqdm import tqdm  # noqa: E402
 from transformers import AutoTokenizer  # noqa: E402
 
 from memory_lora.tokenmem_model import TokenMemForCausalLM  # noqa: E402
-from training.data import NewsQAOracleDataset, make_collate_fn  # noqa: E402
+from training.data import (  # noqa: E402
+    CounterfactualDataset,
+    NewsQAOracleDataset,
+    OversampledDataset,
+    make_collate_fn,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -140,6 +145,19 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="passage",
         help="JSONL 中用作 knowledge 的字段名 (默认: passage)",
+    )
+    p.add_argument(
+        "--cf-train-jsonl",
+        type=str,
+        nargs="+",
+        default=None,
+        help="反事实训练集 JSONL 路径（可传多个）",
+    )
+    p.add_argument(
+        "--cf-oversample",
+        type=int,
+        default=1,
+        help="反事实数据过采样倍数 (默认: 1)",
     )
     p.add_argument("--seed", type=int, default=42, help="随机种子 (默认: 42)")
 
@@ -446,6 +464,28 @@ def train(args: argparse.Namespace) -> None:
         jsonl_path=args.train_jsonl,
         knowledge_field=args.knowledge_field,
     )
+
+    if args.cf_train_jsonl:
+        cf_datasets = []
+        for cf_path in args.cf_train_jsonl:
+            cf_ds = CounterfactualDataset(cf_path, split="train")
+            if args.cf_oversample > 1:
+                cf_ds = OversampledDataset(cf_ds, factor=args.cf_oversample)
+            cf_datasets.append(cf_ds)
+
+        news_len = len(train_dataset)
+        train_dataset = ConcatDataset([train_dataset] + cf_datasets)
+
+        if accelerator.is_main_process:
+            cf_total = sum(len(d) for d in cf_datasets)
+            logger.info(
+                "合并数据集: News %d + CF %d (oversample=%d) = %d 样本",
+                news_len,
+                cf_total,
+                args.cf_oversample,
+                len(train_dataset),
+            )
+
     val_dataset = NewsQAOracleDataset(
         jsonl_path=args.val_jsonl,
         knowledge_field=args.knowledge_field,
