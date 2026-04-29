@@ -154,18 +154,20 @@ class CounterfactualDataset(Dataset):
         row = self.rows[idx]
 
         options = row["options"]
-        prompt = (
-            f"Question: {row['question']}\n"
-            f"A. {options['A']}\n"
-            f"B. {options['B']}\n"
-            f"C. {options['C']}\n"
-            f"D. {options['D']}\n"
-            f"Answer:"
+        sorted_keys = sorted(options.keys())
+        letters = [chr(ord("A") + i) for i in range(len(sorted_keys))]
+        key_to_letter = dict(zip(sorted_keys, letters))
+
+        option_lines = "\n".join(
+            f"{letter}. {options[k]}" for k, letter in zip(sorted_keys, letters)
         )
+        prompt = f"Question: {row['question']}\n{option_lines}\nAnswer:"
+
+        answer = key_to_letter.get(row["target_letter"], row["target_letter"])
 
         return {
             "prompt": prompt,
-            "answer": row["target_letter"],
+            "answer": answer,
             "knowledge_text": row["counterfactual_passage"],
         }
 
