@@ -70,13 +70,14 @@
 
 ---
 
-## Experiments (3)
+## Experiments (4)
 
 | ID | 名称 | 状态 | 关键发现 |
 |----|------|------|---------|
 | [exp:E0_news_dataset](experiments/E0_news_dataset.md) | E0 News Dataset (58,663 MCQ) | ✅ completed | 25源/6类/50K train+8.6K val |
-| [exp:E1_baseline](experiments/E1_baseline.md) | E1 Baseline (No-Memory + VanillaRAG, 4 datasets) | ✅ completed | 48 JSON; VanillaRAG天花板88-99% |
+| [exp:E1_baseline](experiments/E1_baseline.md) | E1 Baseline (No-Memory + VanillaRAG, 4+2 datasets) | ✅ completed | 68 JSON (48原始+20反事实); VanillaRAG天花板88-99% |
 | [exp:E1_tokenmem](experiments/E1_tokenmem.md) | E1 TokenMem (4B/8B, 4 datasets) | 🔄 in_progress | 7/8已测全部>NM; Recovery 29-74% |
+| [exp:E2_pilot_eval_method](experiments/E2_pilot_eval_method.md) | **E2 Pilot: 评测方法验证** | ✅ completed | **MCQ logprob有天花板(94%); CoT降至28-36%; E2需用CoT评测** |
 
 ---
 

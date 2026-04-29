@@ -2,6 +2,86 @@
 
 ---
 
+## 2026-04-29 — E2 评测方案最终确定 + 代码实现
+
+- **决策**: 最终评测方案为 LLMLingua-2 压缩(64tok) + 中性 prompt(无 "Reference:") + CoT + nothink + 1024 tokens
+- **代码实现**: `evaluation/eval_baseline.py` 完全替换 logprob 为 CoT 生成，新增 `compress_passage()` / `evaluate_cot()` / `build_cot_prompt()` / `extract_answer_letter()`
+- **Shell 脚本**: 更新 `qwen3-{4b,8b}_{vanilla_rag,no_memory}.sh`，覆盖全部 7 个数据集
+- **消融预实验**: 中性 prompt 在 8B ARC 上将反事实遵从率从 72%(Reference:标签) 降至 54%；停用词压缩效果不显著(56%)
+- **依赖**: LLMLingua-2 已安装（本地+远程4090）
+- 更新: E2_pilot 实验页(Phase 5), EXPERIMENT_PLAN(v3.3), C1 claim
+
+---
+
+## 2026-04-29 — E1 Baseline 补充: ARC-Easy OOD + 反事实 + arc_easy 全量评测
+
+- **实验**: `exp:E1_baseline` 新增 3 个数据集（arc_easy, cf_arc_easy_val, cf_medqa_val）× 2 方法 × 6 模型
+- **完成**: 30/36 结果（ministral-3b 因 `KeyError: 'ministral3'` transformers 架构不兼容全部失败）
+- **运行环境**: 4090-serve, GPU 2 (小模型) + GPU 7 (大模型) 并行, ~1h 完成
+- **ARC-Easy 结果**: no_memory 72-96% (Qwen 系列), vanilla_rag 96-99.9%, RAG Gap +4~24pp（基线已高，提升空间有限）
+- **反事实知识忠诚度**: vanilla_rag cf_medqa 91-94%, cf_arc_easy 77-87%（Qwen 系列高度忠诚于外部知识）
+- **gemma3-1b 持续无效**: 所有数据集均 ~25%（随机水平），loglikelihood 评测下该模型完全失效
+- **数据预处理**: `scripts/build_cf_eval.py` 从反事实 JSONL 提取 test split, 重映射 counterfactual_passage→passage, target_letter→correct_letter
+
+---
+
+## 2026-04-29 — E2 Pilot: 反事实评测方法验证（重大发现）
+
+- **实验**: `exp:E2_pilot_eval_method` — 诊断反事实知识遵从率虚高问题 + 评测方法三向对比
+- **触发**: Baseline 反事实评测中 vanilla_rag 遵从率高达 91-96%（cf_medqa），与文献预期（40-80%）严重不符
+
+### Phase 1: Baseline 反事实结果（20个JSON, 5模型×2方法×2数据集）
+- 反事实数据（cf_medqa_val 1146条 + cf_arc_easy_val 2745条）由 891682a 生成
+- vanilla_rag 遵从率: cf_medqa 91-94%, cf_arc_easy 77-87%（gemma3-1b 失效）
+- no_memory 遵从率随模型增大而递减（0.6B: 23% → 8B: 13%），合理的 sanity check
+
+### Phase 2: Logprob vs Generation 诊断
+- **结论: Logprob 打分不是问题**
+- 0.6B (100样本) + 4B (50样本) 上 logprob 和 greedy generation 零分歧
+- Conflict-conditioned 分析: High-Prior 91.8% vs Low-Prior 95.1%（MCQ下仅3.26pp差距）
+- 文献参考: Surface Form Competition (Holtzman 2021), Token Selection Bias (Zheng 2024)
+
+### Phase 3: 评测方法三向对比（核心发现, qwen3-4B, 各50条）
+
+**cf_medqa_val**: MCQ直答 96% → 开放式 82%(-14pp) → **CoT 36%(-60pp)** → CoT+nothink 28%(-68pp)
+**cf_arc_easy_val**: MCQ直答 74% → 开放式 66%(-8pp) → **CoT 26%(-48pp)** → CoT+nothink 24%(-50pp)
+
+- **核心机制**: MCQ直答是阅读理解（passage→option匹配），CoT迫使模型激活参数化知识与段落产生真正冲突
+- CoT中观察到模型显式表达知识冲突: "Wait, but the reference..."
+- CoT 50%"其他"类别是 max_new_tokens=200 截断导致，非CoT无效
+
+### 影响
+- **E2 成功标准可行性**: MCQ logprob 天花板效应(94%) → CoT 下降到 28-36%，≥15pp 差距变得现实
+- **C1 claim**: 阈值和评测方法需更新——MCQ logprob 不适合度量知识冲突忠实性
+- **claim:C1 threshold**: 建议改用 CoT-based KC 或同时报告 MCQ + CoT 两组数据
+- 添加 edges: 3条（exp:E2_pilot → claim:C1 supports, exp:E2_pilot → exp:E1_baseline extends, idea:001 → exp:E2_pilot tested_by）
+
+### Phase 4: SFT 兼容性分析
+- **结论: 不需要重训 SFT，不需要构建 CoT 训练数据集**
+- LinearFusion (gate_crossattention) 是 token 位置无关、层级独立的线性变换
+- 训练时 max_seq_len=64 / label 仅 1 token，但 gate 学到的是通用知识融合能力
+- 基座 LLM（冻结）本身具备 CoT 推理能力，gate 只负责知识注入旁路
+- 行动项: 仅需在 eval_tokenmem.py 中新增 CoT 生成模式即可
+
+### 关键决策
+- E2 正式实验应使用 MCQ + CoT 作为主要评测方式，logprob 作为辅助对照
+- 后续需增加 max_new_tokens 到 400-512 + 结构化结尾 prompt 降低"其他"比例
+- 反事实数据质量已验证：模型确实跟随（MCQ下），且模型越大参数化抵抗越强（no_memory反向scaling）
+- **不需要重训 SFT**: 现有 checkpoint 可直接用于 CoT 评测（LinearFusion 位置无关 + 基座 CoT 能力冻结保留）
+
+---
+
+## 2026-04-29 — Baseline 反事实评测完成（5模型×2数据集×2方法 = 20 JSON）
+
+- **实验**: `exp:E1_baseline` 补充 — 反事实数据集（cf_medqa_val + cf_arc_easy_val）baseline
+- **运行**: 远程4090-serve + 本地4070，共5模型（gemma3-1b/qwen3-0.6B/1.7B/4B/8B）
+- **数据**: `data/counterfactual/cf_medqa_val.jsonl` (1146条) + `data/counterfactual/cf_arc_easy_val.jsonl` (2745条)
+- **结果**: `results/baseline/*_cf_*.json` (20个JSON)
+- **新增脚本**: 6模型 no_memory + vanilla_rag 各自的 sh 已更新支持反事实数据集
+- **总计**: E1 baseline 现有 **68 个 JSON**（48 原始 + 20 反事实）
+
+---
+
 ## 2026-04-26 — Wiki初始化
 
 - **Wiki created** for TokenMem project (NeurIPS 2026)

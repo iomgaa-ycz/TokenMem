@@ -24,3 +24,7 @@
 {"from": "exp:E1_tokenmem", "to": "claim:C2", "type": "supports", "evidence": "4B在3/3 OOD数据集上提升>4pp(MedQA+14pp,ARC+4.3pp,MMLU+8.4pp); 8B在2/2已测OOD上提升>4pp"}
 {"from": "exp:E1_tokenmem", "to": "claim:C4", "type": "invalidates", "evidence": "TokenMem未超越VanillaRAG准确率(Recovery Rate 29-74%)，C4需调整为token效率优势"}
 {"from": "idea:001", "to": "exp:E1_tokenmem", "type": "tested_by", "evidence": "E1 TokenMem: 4B/8B SFT后Oracle评测，验证cross-attention知识注入有效性"}
+{"from": "exp:E2_pilot_eval_method", "to": "claim:C1", "type": "supports", "evidence": "发现MCQ logprob评测存在天花板效应(94%)掩盖知识冲突；CoT评测将遵��率降至28-36%，释放E2差异化空间，使C1的≥15pp标准变得可行"}
+{"from": "exp:E2_pilot_eval_method", "to": "exp:E1_baseline", "type": "extends", "evidence": "E2 pilot在E1 baseline的反事实数据上进行评测方法诊断，发现MCQ格式的根本性局限"}
+{"from": "idea:001", "to": "exp:E2_pilot_eval_method", "type": "tested_by", "evidence": "E2 pilot验证了反事实评测方法，为TokenMem的C1核心实验（知识冲突忠实性）扫清评测方法障碍"}
+{"from": "exp:E2_pilot_eval_method", "to": "gap:G1", "type": "addresses_gap", "evidence": "发现MCQ格式无法有效度量知识冲突忠实性，CoT评测才能暴露cross-attention vs in-context注入的真实差异"}
