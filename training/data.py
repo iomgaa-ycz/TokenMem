@@ -82,6 +82,72 @@ class NewsQAOracleDataset(Dataset):
         }
 
 
+class CounterfactualDataset(Dataset):
+    """从反事实 JSONL 加载训练数据。
+
+    字段映射:
+      knowledge_text ← counterfactual_passage
+      answer         ← target_letter
+      prompt         ← question + options
+
+    返回格式与 NewsQAOracleDataset 一致，可直接复用 collate_fn。
+
+    参数:
+        jsonl_path: 反事实 JSONL 文件路径。
+        split: 仅加载指定 split 的行，默认 "train"。
+    """
+
+    def __init__(
+        self,
+        jsonl_path: Union[str, Path],
+        split: str = "train",
+    ) -> None:
+        self.rows: List[Dict[str, Any]] = []
+
+        path = Path(jsonl_path)
+        with path.open("r", encoding="utf-8") as f:
+            for line_no, raw_line in enumerate(f, start=1):
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+                try:
+                    row = json.loads(stripped)
+                except json.JSONDecodeError:
+                    logger.warning("跳过第 %d 行: JSON 解析失败", line_no)
+                    continue
+                if row.get("split") == split:
+                    self.rows.append(row)
+
+        logger.info(
+            "加载 %d 条反事实样本 (split=%s) from %s",
+            len(self.rows),
+            split,
+            path.name,
+        )
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def __getitem__(self, idx: int) -> Dict[str, str]:
+        row = self.rows[idx]
+
+        options = row["options"]
+        prompt = (
+            f"Question: {row['question']}\n"
+            f"A. {options['A']}\n"
+            f"B. {options['B']}\n"
+            f"C. {options['C']}\n"
+            f"D. {options['D']}\n"
+            f"Answer:"
+        )
+
+        return {
+            "prompt": prompt,
+            "answer": row["target_letter"],
+            "knowledge_text": row["counterfactual_passage"],
+        }
+
+
 # ---------------------------------------------------------------------------
 # Collate function
 # ---------------------------------------------------------------------------

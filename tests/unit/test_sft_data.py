@@ -8,7 +8,7 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from training.data import NewsQAOracleDataset, make_collate_fn
+from training.data import CounterfactualDataset, NewsQAOracleDataset, make_collate_fn
 
 # ---------------------------------------------------------------------------
 # 公共 fixtures & mock 数据
@@ -37,6 +37,59 @@ MOCK_DATA: List[dict] = [
         "options": {"A": "Mercury", "B": "Venus", "C": "Earth", "D": "Mars"},
     },
 ]
+
+
+MOCK_CF_DATA: List[dict] = [
+    {
+        "cf_id": "arc_00_cf_B",
+        "source_id": "arc_00",
+        "dataset": "arc_easy",
+        "question": "What color is the sky?",
+        "options": {"A": "Red", "B": "Blue", "C": "Green", "D": "Yellow"},
+        "correct_letter": "B",
+        "passage": "The sky appears blue due to Rayleigh scattering.",
+        "target_letter": "A",
+        "target_answer": "Red",
+        "counterfactual_passage": "The sky appears red due to iron oxide particles.",
+        "split": "train",
+    },
+    {
+        "cf_id": "arc_00_cf_C",
+        "source_id": "arc_00",
+        "dataset": "arc_easy",
+        "question": "What color is the sky?",
+        "options": {"A": "Red", "B": "Blue", "C": "Green", "D": "Yellow"},
+        "correct_letter": "B",
+        "passage": "The sky appears blue due to Rayleigh scattering.",
+        "target_letter": "C",
+        "target_answer": "Green",
+        "counterfactual_passage": "The sky appears green due to chlorophyll absorption.",
+        "split": "train",
+    },
+    {
+        "cf_id": "arc_01_cf_A",
+        "source_id": "arc_01",
+        "dataset": "arc_easy",
+        "question": "What is 2+2?",
+        "options": {"A": "3", "B": "5", "C": "4", "D": "6"},
+        "correct_letter": "C",
+        "passage": "Basic arithmetic: two plus two equals four.",
+        "target_letter": "A",
+        "target_answer": "3",
+        "counterfactual_passage": "In modular arithmetic base 3, two plus two equals three.",
+        "split": "test",
+    },
+]
+
+
+@pytest.fixture()
+def cf_jsonl_path(tmp_path: Path) -> Path:
+    """写入 3 条反事实 JSONL（2 train + 1 test）。"""
+    p = tmp_path / "cf.jsonl"
+    with p.open("w", encoding="utf-8") as f:
+        for row in MOCK_CF_DATA:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return p
 
 
 @pytest.fixture()
@@ -225,3 +278,53 @@ class TestCollateFn:
         batch = [ds[i] for i in range(len(ds))]
         out = fn(batch)
         assert out["knowledge_input_ids"].shape[1] <= short_limit
+
+
+# ===================================================================
+# Task 3: TestCounterfactualDataset
+# ===================================================================
+
+
+class TestCounterfactualDataset:
+    """CounterfactualDataset 基本功能测试。"""
+
+    def test_length_filters_train_only(self, cf_jsonl_path: Path) -> None:
+        """仅加载 split='train' 的行，3 条中应保留 2 条。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        assert len(ds) == 2
+
+    def test_getitem_keys(self, cf_jsonl_path: Path) -> None:
+        """返回与 NewsQAOracleDataset 相同的 key 集合。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        item = ds[0]
+        assert set(item.keys()) == {"prompt", "answer", "knowledge_text"}
+
+    def test_answer_is_target_letter(self, cf_jsonl_path: Path) -> None:
+        """answer 应为 target_letter（非 correct_letter）。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        assert ds[0]["answer"] == "A"  # target_letter of cf_B
+        assert ds[1]["answer"] == "C"  # target_letter of cf_C
+
+    def test_knowledge_is_counterfactual(self, cf_jsonl_path: Path) -> None:
+        """knowledge_text 应为 counterfactual_passage。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        assert "iron oxide" in ds[0]["knowledge_text"]
+        assert "chlorophyll" in ds[1]["knowledge_text"]
+
+    def test_prompt_format(self, cf_jsonl_path: Path) -> None:
+        """prompt 格式与 NewsQAOracleDataset 一致。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        prompt = ds[0]["prompt"]
+        assert prompt.startswith("Question:")
+        for letter in ("A.", "B.", "C.", "D."):
+            assert letter in prompt
+        assert prompt.endswith("Answer:")
+
+    def test_collate_compatible(self, cf_jsonl_path: Path, tokenizer) -> None:
+        """CounterfactualDataset 输出可被现有 collate_fn 处理。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        fn = make_collate_fn(tokenizer, max_seq_len=128, knowledge_max_len=64)
+        batch = [ds[i] for i in range(len(ds))]
+        out = fn(batch)
+        assert out["input_ids"].shape[0] == 2
+        assert out["labels"].shape[0] == 2
