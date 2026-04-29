@@ -63,7 +63,10 @@ def _get_compressor() -> "PromptCompressor":
     if _compressor is None:
         from llmlingua import PromptCompressor
 
-        _compressor = PromptCompressor()
+        _compressor = PromptCompressor(
+            model_name="microsoft/llmlingua-2-xlm-roberta-large-meetingbank",
+            use_llmlingua2=True,
+        )
         logger.info("LLMLingua-2 PromptCompressor 已初始化")
     return _compressor
 
@@ -80,7 +83,7 @@ def compress_passage(passage: str, target_token: int = 64) -> str:
     """
     compressor = _get_compressor()
     result = compressor.compress_prompt(
-        prompt=passage,
+        context=[passage],
         instruction="",
         question="",
         target_token=target_token,
