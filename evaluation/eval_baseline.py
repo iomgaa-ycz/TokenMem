@@ -91,6 +91,12 @@ def compress_passage(passage: str, target_token: int = 64) -> str:
     return result["compressed_prompt"]
 
 
+def _supports_thinking(tokenizer: PreTrainedTokenizerBase) -> bool:
+    """检测 tokenizer 是否支持 enable_thinking 参数（Qwen3 系列）。"""
+    template = getattr(tokenizer, "chat_template", "") or ""
+    return "enable_thinking" in template
+
+
 # ---------------------------------------------------------------------------
 # Prompt 构造
 # ---------------------------------------------------------------------------
@@ -122,8 +128,9 @@ def build_cot_prompt(
     options: Dict[str, str],
     passage: Optional[str] = None,
 ) -> str:
-    """构造 CoT + nothink 格式的 prompt。
+    """构造 CoT 用户内容。
 
+    不包含 /no_think 或 chat template 标记 — 这些由 evaluate_cot 处理。
     使用中性 prompt（无 "Reference:" 标签），passage 直接放在开头。
     末尾要求模型以 "The answer is X" 格式输出答案。
 
@@ -133,13 +140,13 @@ def build_cot_prompt(
         passage: 压缩后的知识段落，为 None 时构造 no_memory prompt。
 
     返回：
-        格式化后的 CoT prompt 字符串。
+        格式化后的用户内容字符串。
     """
     labels = sorted(options.keys())
     option_lines = "\n".join(f"{lb}. {options[lb]}" for lb in labels)
     label_list = ", ".join(labels[:-1]) + ", or " + labels[-1]
 
-    parts = ["/no_think"]
+    parts: list[str] = []
     if passage is not None:
         parts.append(passage)
     parts.append(f"\nQuestion: {question}")
@@ -178,6 +185,32 @@ def extract_answer_letter(text: str, valid_labels: set) -> str:
     return "?"
 
 
+def _tokenize_prompt(
+    user_content: str,
+    tokenizer: PreTrainedTokenizerBase,
+    device: str = "cuda:0",
+) -> torch.Tensor:
+    """将用户内容编码为 input_ids，自动处理 chat template 和 thinking 开关。
+
+    Qwen3 系列: apply_chat_template(enable_thinking=False) 注入空 think 块。
+    其他模型: 有 chat_template 则使用，否则直接 tokenize。
+    """
+    has_chat = bool(getattr(tokenizer, "chat_template", None))
+    if not has_chat:
+        return tokenizer(user_content, return_tensors="pt").input_ids.to(device)
+
+    kwargs: Dict = dict(
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    if _supports_thinking(tokenizer):
+        kwargs["enable_thinking"] = False
+
+    messages = [{"role": "user", "content": user_content}]
+    text = tokenizer.apply_chat_template(messages, **kwargs)
+    return tokenizer(text, return_tensors="pt").input_ids.to(device)
+
+
 # ---------------------------------------------------------------------------
 # CoT 生成评测
 # ---------------------------------------------------------------------------
@@ -190,27 +223,28 @@ def evaluate_cot(
     prompt: str,
     valid_labels: set,
     device: str = "cuda:0",
-    max_new_tokens: int = 1024,
+    max_new_tokens: int = 2048,
 ) -> tuple:
-    """CoT 生成评测，返回 (提取的字母, 生成文本 token 数)。
+    """CoT 生成评测。
 
     参数：
         model: CausalLM 模型。
         tokenizer: tokenizer。
-        prompt: CoT 格式的 prompt。
+        prompt: 用户内容（不含 chat template 标记）。
         valid_labels: 合法选项字母集合。
         device: 推理设备。
         max_new_tokens: 最大生成 token 数。
 
     返回：
-        (answer_letter, gen_length) — answer_letter 为 "?" 表示提取失败。
+        (answer_letter, gen_length, raw_output)
+        answer_letter 为 "?" 表示提取失败。
     """
-    ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+    ids = _tokenize_prompt(prompt, tokenizer, device)
     out = model.generate(ids, max_new_tokens=max_new_tokens, do_sample=False)
     gen_tokens = out[0][ids.shape[-1] :]
     gen_text = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
     letter = extract_answer_letter(gen_text, valid_labels)
-    return letter, len(gen_tokens)
+    return letter, len(gen_tokens), gen_text
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +395,7 @@ def run_evaluation(
         )
 
         t0 = time.perf_counter()
-        pred_letter, gen_len = evaluate_cot(
+        pred_letter, gen_len, _ = evaluate_cot(
             model,
             tokenizer,
             prompt,
