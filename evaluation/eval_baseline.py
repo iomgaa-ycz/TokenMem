@@ -294,8 +294,8 @@ def _batch_evaluate_cot(
     )
 
     results: List[tuple] = []
+    input_len = batch["input_ids"].shape[1]
     for i, out_ids in enumerate(outputs):
-        input_len = batch["attention_mask"][i].sum().item()
         gen_tokens = out_ids[input_len:]
         gen_text = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
         letter = extract_answer_letter(gen_text, valid_labels_list[i])
