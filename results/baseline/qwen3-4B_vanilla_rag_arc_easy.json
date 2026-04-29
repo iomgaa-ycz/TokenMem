@@ -6,7 +6,7 @@
   "n_samples": 2376,
   "accuracy": 0.9983,
   "correct": 2372,
-  "latency_ms_mean": 169.59,
-  "timestamp": "2026-04-28T19:38:42.117658+00:00",
-  "git_sha": "80f45ca"
+  "latency_ms_mean": 105.18,
+  "timestamp": "2026-04-29T03:47:36.084032+00:00",
+  "git_sha": "74564b9"
 }

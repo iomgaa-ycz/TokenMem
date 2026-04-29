@@ -1,5 +1,5 @@
 #!/bin/bash
-# qwen3-8b — vanilla_rag baseline 评测
+# qwen3-8b — vanilla_rag CoT 评测 (LLMLingua-2 压缩 + 中性 prompt + nothink)
 # 用法：
 #   bash scripts/qwen3-8b_vanilla_rag.sh                          # 默认 GPU 0，全量
 #   CUDA_VISIBLE_DEVICES=2 bash scripts/qwen3-8b_vanilla_rag.sh   # 指定 GPU
@@ -17,16 +17,16 @@ COMMON="python -m evaluation.eval_baseline \
     --model-path hugglingface_model/qwen3-8B \
     --method vanilla_rag \
     --output-dir results/baseline \
+    --compress-target-token 64 \
+    --cot-max-new-tokens 1024 \
     --n-samples $N_SAMPLES"
 
-echo "=== qwen3-8b / vanilla_rag ==="
-# $COMMON --dataset medqa   --data-dir data/ood
-# $COMMON --dataset arc     --data-dir data/ood
-# $COMMON --dataset mmlu    --data-dir data/ood
-
-# $COMMON --dataset news --data-dir data/news
-
-$COMMON --dataset arc_easy       --data-dir data/ood
+echo "=== qwen3-8b / vanilla_rag (CoT + LLMLingua-2) ==="
+$COMMON --dataset medqa        --data-dir data/ood
+$COMMON --dataset arc          --data-dir data/ood
+$COMMON --dataset mmlu         --data-dir data/ood
+$COMMON --dataset news         --data-dir data/news
+$COMMON --dataset arc_easy     --data-dir data/ood
 $COMMON --dataset cf_arc_easy_val --data-dir data/counterfactual
 $COMMON --dataset cf_medqa_val    --data-dir data/counterfactual
 
