@@ -1,5 +1,5 @@
 #!/bin/bash
-# qwen3-8b — vanilla_rag CoT 评测 (LLMLingua-2 压缩 + 中性 prompt + nothink)
+# qwen3-8b — vanilla_rag CoT 评测 (LLMLingua-2 压缩 + nothink + batch)
 # 用法：
 #   bash scripts/qwen3-8b_vanilla_rag.sh                          # 默认 GPU 0，全量
 #   CUDA_VISIBLE_DEVICES=2 bash scripts/qwen3-8b_vanilla_rag.sh   # 指定 GPU
@@ -18,7 +18,8 @@ COMMON="python -m evaluation.eval_baseline \
     --method vanilla_rag \
     --output-dir results/baseline \
     --compress-target-token 64 \
-    --cot-max-new-tokens 1024 \
+    --cot-max-new-tokens 2048 \
+    --batch-size 4 \
     --n-samples $N_SAMPLES"
 
 echo "=== qwen3-8b / vanilla_rag (CoT + LLMLingua-2) ==="

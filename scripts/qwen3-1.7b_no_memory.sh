@@ -1,5 +1,5 @@
 #!/bin/bash
-# qwen3-1.7b — no_memory baseline 评测
+# qwen3-1.7b — no_memory CoT 评测 (nothink + batch)
 # 用法：
 #   bash scripts/qwen3-1.7b_no_memory.sh                          # 默认 GPU 0，全量
 #   CUDA_VISIBLE_DEVICES=2 bash scripts/qwen3-1.7b_no_memory.sh   # 指定 GPU
@@ -17,6 +17,8 @@ COMMON="python -m evaluation.eval_baseline \
     --model-path hugglingface_model/qwen3-1.7B \
     --method no_memory \
     --output-dir results/baseline \
+    --cot-max-new-tokens 2048 \
+    --batch-size 16 \
     --n-samples $N_SAMPLES"
 
 echo "=== qwen3-1.7b / no_memory ==="

@@ -1,5 +1,5 @@
 #!/bin/bash
-# qwen3-1.7b — vanilla_rag baseline 评测
+# qwen3-1.7b — vanilla_rag CoT 评测 (nothink + batch)
 # 用法：
 #   bash scripts/qwen3-1.7b_vanilla_rag.sh                          # 默认 GPU 0，全量
 #   CUDA_VISIBLE_DEVICES=2 bash scripts/qwen3-1.7b_vanilla_rag.sh   # 指定 GPU
@@ -17,6 +17,8 @@ COMMON="python -m evaluation.eval_baseline \
     --model-path hugglingface_model/qwen3-1.7B \
     --method vanilla_rag \
     --output-dir results/baseline \
+    --cot-max-new-tokens 2048 \
+    --batch-size 16 \
     --n-samples $N_SAMPLES"
 
 echo "=== qwen3-1.7b / vanilla_rag ==="
