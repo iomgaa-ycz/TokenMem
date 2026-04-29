@@ -40,7 +40,7 @@ python -m accelerate.commands.launch \
     --grad-accum-steps    1 \
     --max-seq-len         64 \
     --knowledge-max-len   256 \
-    --knowledge-strided-len 64 \
+    --knowledge-strided-len 256 \
     --save-steps          500 \
     --eval-steps          500 \
     --num-workers         4 \
