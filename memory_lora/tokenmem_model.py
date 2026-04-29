@@ -24,10 +24,14 @@ from memory_lora.linear_fusion import LinearFusion
 
 _MODEL_CLASS_MAP = {
     "qwen3": "memory_lora.modified_models.modeling_qwen3",
+    "gemma3_text": "memory_lora.modified_models.modeling_gemma3",
+    "ministral": "memory_lora.modified_models.modeling_ministral",
 }
 
 _CAUSAL_LM_CLASS_MAP = {
     "qwen3": "Qwen3ForCausalLM",
+    "gemma3_text": "Gemma3ForCausalLM",
+    "ministral": "MinistralForCausalLM",
 }
 
 
