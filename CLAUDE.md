@@ -23,6 +23,13 @@
 > - 如果需要使用llm可以依据 '.env'环境变量文件使用
 
 > [!CRITICAL]
+> **模型权重路径：**
+> - 本项目所有模型权重统一存放在项目根目录下的 `hugglingface_model/` 文件夹
+> - 6 个模型：`qwen3-0.6B`、`qwen3-1.7B`、`qwen3-4B`、`qwen3-8B`、`gemma3-1b`、`ministral-3-3b`
+> - 代码和 sh 脚本中引用模型路径**必须**使用相对路径 `hugglingface_model/<model_name>`，**严禁**使用绝对路径或 HuggingFace Hub 远程路径
+> - 该文件夹通过 Syncthing 同步，本地和远程服务器路径一致（相对于项目根目录）
+
+> [!CRITICAL]
 > **GPU 使用规范（）：**
 > - **本地 (4070 Ti Super，单卡)**：`CUDA_VISIBLE_DEVICES=0`（默认；sh 模板已硬编码）
 > - **远程 (4090-serve，8 卡)**：`CUDA_VISIBLE_DEVICES=2` / `3` / `6`（空闲卡任选；外部 env var 覆盖 sh 默认）
