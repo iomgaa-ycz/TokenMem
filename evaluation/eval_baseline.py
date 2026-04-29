@@ -23,20 +23,66 @@
 import argparse
 import json
 import logging
+import re
 import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from llmlingua import PromptCompressor
 
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
+from transformers import CONFIG_MAPPING
+
+if "ministral3" not in CONFIG_MAPPING:
+    from transformers.models.mistral.configuration_mistral import MistralConfig
+    CONFIG_MAPPING.register("ministral3", MistralConfig)
 
 logger = logging.getLogger(__name__)
 
 _NUM_TO_LETTER = {"1": "A", "2": "B", "3": "C", "4": "D", "5": "E"}
+
+
+# ---------------------------------------------------------------------------
+# Passage 压缩 (LLMLingua-2)
+# ---------------------------------------------------------------------------
+
+_compressor = None
+
+
+def _get_compressor() -> "PromptCompressor":
+    """懒加载 LLMLingua-2 PromptCompressor 单例。"""
+    global _compressor
+    if _compressor is None:
+        from llmlingua import PromptCompressor
+        _compressor = PromptCompressor()
+        logger.info("LLMLingua-2 PromptCompressor 已初始化")
+    return _compressor
+
+
+def compress_passage(passage: str, target_token: int = 64) -> str:
+    """用 LLMLingua-2 将 passage 压缩到目标 token 数。
+
+    参数：
+        passage: 原始知识段落。
+        target_token: 压缩目标 token 数。
+
+    返回：
+        压缩后的文本字符串。
+    """
+    compressor = _get_compressor()
+    result = compressor.compress_prompt(
+        prompt=passage,
+        instruction="",
+        question="",
+        target_token=target_token,
+    )
+    return result["compressed_prompt"]
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +133,67 @@ def build_mc_prompt(
     if passage is not None:
         return f"Reference: {passage}\n\n{body}"
     return body
+
+
+def build_cot_prompt(
+    question: str,
+    options: Dict[str, str],
+    passage: Optional[str] = None,
+) -> str:
+    """构造 CoT + nothink 格式的 prompt。
+
+    使用中性 prompt（无 "Reference:" 标签），passage 直接放在开头。
+    末尾要求模型以 "The answer is X" 格式输出答案。
+
+    参数：
+        question: 题目文本。
+        options: 选项字典。
+        passage: 压缩后的知识段落，为 None 时构造 no_memory prompt。
+
+    返回：
+        格式化后的 CoT prompt 字符串。
+    """
+    labels = sorted(options.keys())
+    option_lines = "\n".join(f"{lb}. {options[lb]}" for lb in labels)
+    label_list = ", ".join(labels[:-1]) + ", or " + labels[-1]
+
+    parts = ["/no_think"]
+    if passage is not None:
+        parts.append(passage)
+    parts.append(f"\nQuestion: {question}")
+    parts.append(option_lines)
+    parts.append(
+        f"\nLet's think step by step, then give the answer.\n"
+        f'You MUST end your response with exactly "The answer is X" '
+        f"where X is {label_list}."
+    )
+    return "\n".join(parts)
+
+
+def extract_answer_letter(text: str, valid_labels: set) -> str:
+    """从 CoT 生成文本中提取答案字母。
+
+    按优先级依次尝试多种 pattern，返回第一个匹配的有效字母。
+    无法提取时返回 "?"。
+
+    参数：
+        text: 模型生成的完整文本。
+        valid_labels: 合法选项字母集合，如 {"A","B","C","D"}。
+
+    返回：
+        提取到的答案字母，或 "?"。
+    """
+    patterns = [
+        r'[Tt]he answer is\s*([A-E])',
+        r'[Aa]nswer\s*:\s*([A-E])',
+        r'(?:option|choice)\s+([A-E])',
+        r'\b([A-E])\s*\.?\s*$',
+    ]
+    for p in patterns:
+        m = re.search(p, text)
+        if m and m.group(1) in valid_labels:
+            return m.group(1)
+    return "?"
 
 
 # ---------------------------------------------------------------------------
@@ -218,9 +325,12 @@ def run_evaluation(
     """
     # Phase 1: 加载模型
     logger.info("加载模型: %s", model_path)
-    config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
-    if hasattr(config, "text_config"):
-        # 多模态模型（如 Mistral3）：用具体类加载，text-only input_ids 仍返回 logits
+    try:
+        config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+        has_text_config = hasattr(config, "text_config")
+    except (KeyError, ValueError):
+        has_text_config = False
+    if has_text_config:
         import importlib
         arch_name = config.architectures[0]
         cls = getattr(importlib.import_module("transformers"), arch_name)
