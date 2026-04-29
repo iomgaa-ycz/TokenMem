@@ -23,3 +23,10 @@ __pycache__/
 
 # Reference materials (large external repos & PDFs)
 Reference/
+hugglingface_model/
+
+# Superpowers auto-generated plans/specs
+docs/superpowers/
+
+# Temporary GPU runner scripts
+scripts/_run_gpu*.sh
