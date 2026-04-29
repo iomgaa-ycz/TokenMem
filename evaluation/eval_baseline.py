@@ -13,7 +13,8 @@ Prompt 使用中性框定（无 "Reference:" 标签）。
         --data-dir data/ood \\
         --output-dir results/baseline \\
         --compress-target-token 64 \\
-        --cot-max-new-tokens 1024
+        --cot-max-new-tokens 2048 \\
+        --batch-size 4
 """
 
 import argparse
@@ -247,6 +248,61 @@ def evaluate_cot(
     return letter, len(gen_tokens), gen_text
 
 
+@torch.no_grad()
+def _batch_evaluate_cot(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizerBase,
+    prompts: List[str],
+    valid_labels_list: List[set],
+    device: str = "cuda:0",
+    max_new_tokens: int = 2048,
+) -> List[tuple]:
+    """批量 CoT 生成评测。
+
+    参数：
+        prompts: 用户内容列表。
+        valid_labels_list: 每条样本的合法标签集列表。
+        device: 推理设备。
+        max_new_tokens: 最大生成 token 数。
+
+    返回：
+        [(answer_letter, gen_length, raw_output), ...] 与 prompts 等长。
+    """
+    has_chat = bool(getattr(tokenizer, "chat_template", None))
+    use_thinking_off = _supports_thinking(tokenizer)
+
+    texts: List[str] = []
+    for content in prompts:
+        if not has_chat:
+            texts.append(content)
+        else:
+            kwargs: Dict = dict(tokenize=False, add_generation_prompt=True)
+            if use_thinking_off:
+                kwargs["enable_thinking"] = False
+            messages = [{"role": "user", "content": content}]
+            texts.append(tokenizer.apply_chat_template(messages, **kwargs))
+
+    orig_pad_side = tokenizer.padding_side
+    tokenizer.padding_side = "left"
+    batch = tokenizer(texts, return_tensors="pt", padding=True).to(device)
+    tokenizer.padding_side = orig_pad_side
+
+    outputs = model.generate(
+        **batch,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+    )
+
+    results: List[tuple] = []
+    for i, out_ids in enumerate(outputs):
+        input_len = batch["attention_mask"][i].sum().item()
+        gen_tokens = out_ids[input_len:]
+        gen_text = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+        letter = extract_answer_letter(gen_text, valid_labels_list[i])
+        results.append((letter, len(gen_tokens), gen_text))
+    return results
+
+
 # ---------------------------------------------------------------------------
 # 数据加载
 # ---------------------------------------------------------------------------
@@ -311,23 +367,25 @@ def run_evaluation(
     n_samples: int = -1,
     device: str = "cuda:0",
     compress_target_token: int = 64,
-    cot_max_new_tokens: int = 1024,
+    cot_max_new_tokens: int = 2048,
+    batch_size: int = 1,
 ) -> Dict:
     """执行 baseline 评测的完整流程。
 
     参数：
-        model_path: HuggingFace 模型路径（本地或远程）。
+        model_path: HuggingFace 模型路径。
         method: 评测方法，"no_memory" 或 "vanilla_rag"。
-        dataset: 数据集名称（对应 data_dir 下的 {dataset}.jsonl）。
+        dataset: 数据集名称。
         data_dir: 数据目录。
         output_dir: 结果输出目录。
         n_samples: 评测样本数，-1 表示全部。
         device: 推理设备。
         compress_target_token: LLMLingua-2 压缩目标 token 数。
         cot_max_new_tokens: CoT 生成最大 token 数。
+        batch_size: 批量推理 batch size。
 
     返回：
-        包含评测结果的字典（accuracy, correct, latency 等）。
+        包含评测结果的字典。
     """
     # Phase 1: 加载模型
     logger.info("加载模型: %s", model_path)
@@ -369,19 +427,17 @@ def run_evaluation(
     data_path = Path(data_dir) / f"{dataset}.jsonl"
     logger.info("加载数据: %s", data_path)
     samples = load_samples_jsonl(data_path, n_samples=n_samples)
-    logger.info("评测样本数: %d", len(samples))
+    logger.info("评测样本数: %d, batch_size: %d", len(samples), batch_size)
 
-    # Phase 3: 逐条评测
-    correct = 0
-    extract_success = 0
-    latencies: List[float] = []
-    gen_lengths: List[int] = []
+    # Phase 3: 预处理全部 prompt
+    prompts: List[str] = []
+    labels_list: List[List[str]] = []
+    correct_letters: List[str] = []
+    sample_ids: List[str] = []
 
-    for sample in tqdm(samples, desc=f"{method}/{dataset}"):
-        options, correct_letter = normalize_options(
-            sample["options"], sample["correct_letter"]
-        )
-        labels = sorted(options.keys())
+    for sample in samples:
+        options, cl = normalize_options(sample["options"], sample["correct_letter"])
+        sorted_labels = sorted(options.keys())
 
         passage = None
         if method == "vanilla_rag":
@@ -393,31 +449,82 @@ def run_evaluation(
             options=options,
             passage=passage,
         )
+        prompts.append(prompt)
+        labels_list.append(sorted_labels)
+        correct_letters.append(cl)
+        sample_ids.append(sample.get("id", ""))
 
-        t0 = time.perf_counter()
-        pred_letter, gen_len, _ = evaluate_cot(
-            model,
-            tokenizer,
-            prompt,
-            valid_labels=set(labels),
-            device=device,
-            max_new_tokens=cot_max_new_tokens,
-        )
-        latencies.append((time.perf_counter() - t0) * 1000)
-        gen_lengths.append(gen_len)
+    # Phase 4: 批量推理 + 逐条 JSONL 输出
+    correct = 0
+    extract_success = 0
+    latencies: List[float] = []
+    gen_lengths: List[int] = []
 
-        if pred_letter != "?":
-            extract_success += 1
-        if pred_letter == correct_letter:
-            correct += 1
+    model_name = Path(model_path).name
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = out_dir / f"{model_name}_{method}_{dataset}.jsonl"
 
-    # Phase 4: 汇总结果
+    n_batches = (len(prompts) + batch_size - 1) // batch_size
+    with open(jsonl_path, "w", encoding="utf-8") as jf:
+        for batch_start in tqdm(
+            range(0, len(prompts), batch_size),
+            desc=f"{method}/{dataset}",
+            total=n_batches,
+        ):
+            batch_end = min(batch_start + batch_size, len(prompts))
+            batch_prompts = prompts[batch_start:batch_end]
+            batch_valid = [set(ll) for ll in labels_list[batch_start:batch_end]]
+
+            t0 = time.perf_counter()
+            if len(batch_prompts) == 1:
+                batch_results = [
+                    evaluate_cot(
+                        model,
+                        tokenizer,
+                        batch_prompts[0],
+                        batch_valid[0],
+                        device=device,
+                        max_new_tokens=cot_max_new_tokens,
+                    )
+                ]
+            else:
+                batch_results = _batch_evaluate_cot(
+                    model,
+                    tokenizer,
+                    batch_prompts,
+                    batch_valid,
+                    device=device,
+                    max_new_tokens=cot_max_new_tokens,
+                )
+            elapsed = (time.perf_counter() - t0) * 1000
+
+            for j, (pred, gen_len, raw_output) in enumerate(batch_results):
+                idx = batch_start + j
+                per_sample_ms = elapsed / len(batch_results)
+                latencies.append(per_sample_ms)
+                gen_lengths.append(gen_len)
+
+                if pred != "?":
+                    extract_success += 1
+                if pred == correct_letters[idx]:
+                    correct += 1
+
+                record = {
+                    "id": sample_ids[idx],
+                    "pred": pred,
+                    "correct": correct_letters[idx],
+                    "gen_length": gen_len,
+                    "raw_output": raw_output,
+                }
+                jf.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    # Phase 5: 汇总结果
     n_total = len(samples)
     accuracy = correct / n_total if n_total > 0 else 0.0
     latency_ms_mean = sum(latencies) / len(latencies) if latencies else 0.0
     avg_gen_len = sum(gen_lengths) / len(gen_lengths) if gen_lengths else 0.0
 
-    model_name = Path(model_path).name
     result = {
         "model": model_name,
         "model_path": model_path,
@@ -428,6 +535,7 @@ def run_evaluation(
         if method == "vanilla_rag"
         else None,
         "cot_max_new_tokens": cot_max_new_tokens,
+        "batch_size": batch_size,
         "n_samples": n_total,
         "accuracy": round(accuracy, 4),
         "correct": correct,
@@ -441,14 +549,15 @@ def run_evaluation(
         "git_sha": _git_sha(),
     }
 
-    # Phase 5: 保存结果
-    out_dir = Path(output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{model_name}_{method}_{dataset}.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
-    logger.info("结果已保存: %s (accuracy=%.4f)", out_path, accuracy)
-
+    logger.info(
+        "结果已保存: %s (accuracy=%.4f, avg_gen=%.0f)",
+        out_path,
+        accuracy,
+        avg_gen_len,
+    )
     return result
 
 
@@ -488,8 +597,14 @@ def main() -> None:
     parser.add_argument(
         "--cot-max-new-tokens",
         type=int,
-        default=1024,
-        help="CoT 生成最大 token 数 (默认: 1024)",
+        default=2048,
+        help="CoT 生成最大 token 数 (默认: 2048)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="批量推理 batch size (默认: 1)",
     )
     args = parser.parse_args()
 
@@ -508,6 +623,7 @@ def main() -> None:
         device=args.device,
         compress_target_token=args.compress_target_token,
         cot_max_new_tokens=args.cot_max_new_tokens,
+        batch_size=args.batch_size,
     )
 
 
