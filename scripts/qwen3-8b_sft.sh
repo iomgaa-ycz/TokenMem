@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# qwen3-8b_sft.sh — Qwen3-8B News SFT (LinearFusion gates only)
+# qwen3-8b_sft.sh — Qwen3-8B News + Counterfactual SFT (LinearFusion gates only)
 #
 # 训练参数来自 DecoupledRAG (Lamb lr=1e-3, LinearLR warmup=10)
 # 可训练参数: 仅 gate_crossattention (LinearFusion W_A + W_B), ~4.72M trainable params
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 : "${CUDA_VISIBLE_DEVICES:=0}"
-: "${NUM_GPUS:=1}"
+: "${NUM_GPUS:=2}"
 : "${MAIN_PROCESS_PORT:=29503}"
 export CUDA_VISIBLE_DEVICES
 
@@ -28,10 +28,12 @@ python -m accelerate.commands.launch \
     training/sft.py \
     --model-name-or-path  hugglingface_model/qwen3-8B \
     --train-jsonl         data/news/train.jsonl \
+    --cf-train-jsonl      data/counterfactual/arc_easy.jsonl data/counterfactual/medqa.jsonl \
+    --cf-oversample       2 \
     --val-jsonl           data/news/val.jsonl \
     --ckpt-dir            checkpoints/qwen3-8b_sft \
-    --epochs              5 \
-    --batch-size          16 \
+    --epochs              10 \
+    --batch-size          32 \
     --lr                  1e-3 \
     --weight-decay        0.0 \
     --grad-clip           0.0 \
