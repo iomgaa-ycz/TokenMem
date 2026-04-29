@@ -1,23 +1,19 @@
 """eval_baseline — No-Memory / VanillaRAG baseline 评测。
 
-统一入口，通过 --method 切换评测模式。使用 loglikelihood 打分
-（对 " A"/" B"/" C"/" D" 的 continuation log-prob 累加取 argmax）。
+统一入口，通过 --method 切换评测模式。
+评测方式: CoT + nothink 生成 → regex 提取答案字母。
+VanillaRAG 的段落通过 LLMLingua-2 压缩到 --compress-target-token (默认 64) 个 token。
+Prompt 使用中性框定（无 "Reference:" 标签）。
 
 使用：
-    python -m evaluation.eval_baseline \
-        --model-path hugglingface_model/qwen3-0.6B \
-        --method no_memory \
-        --dataset medqa \
-        --data-dir data/ood \
-        --output-dir results/baseline
-
-    python -m evaluation.eval_baseline \
-        --model-path hugglingface_model/qwen3-0.6B \
-        --method vanilla_rag \
-        --dataset medqa \
-        --data-dir data/ood \
-        --output-dir results/baseline \
-        --n-samples 10
+    python -m evaluation.eval_baseline \\
+        --model-path hugglingface_model/qwen3-4B \\
+        --method vanilla_rag \\
+        --dataset medqa \\
+        --data-dir data/ood \\
+        --output-dir results/baseline \\
+        --compress-target-token 64 \\
+        --cot-max-new-tokens 1024
 """
 
 import argparse
@@ -34,13 +30,19 @@ if TYPE_CHECKING:
     from llmlingua import PromptCompressor
 
 import torch
-import torch.nn.functional as F
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+)
 from transformers import CONFIG_MAPPING
 
 if "ministral3" not in CONFIG_MAPPING:
     from transformers.models.mistral.configuration_mistral import MistralConfig
+
     CONFIG_MAPPING.register("ministral3", MistralConfig)
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,7 @@ def _get_compressor() -> "PromptCompressor":
     global _compressor
     if _compressor is None:
         from llmlingua import PromptCompressor
+
         _compressor = PromptCompressor()
         logger.info("LLMLingua-2 PromptCompressor 已初始化")
     return _compressor
@@ -111,30 +114,6 @@ def normalize_options(options: Dict[str, str], correct_letter: str) -> tuple:
     return options, correct_letter
 
 
-def build_mc_prompt(
-    question: str,
-    options: Dict[str, str],
-    passage: Optional[str] = None,
-) -> str:
-    """构造多选�� prompt，支持 3/4/5 个���项。
-
-    参数：
-        question: ��题文本。
-        options: 选项字典，键为字母（A/B/C/...），值为选项文本。
-        passage: 参考段落���为 None 时构造 no_memory prompt；
-                 否则在开头���加 "Reference: ..." 构造 vanilla_rag prompt。
-
-    返回：
-        格式化后的 prompt 字符串，以 "Answer:" 结尾。
-    """
-    labels = sorted(options.keys())
-    option_lines = "\n".join(f"{lb}. {options[lb]}" for lb in labels)
-    body = f"Question: {question}\n{option_lines}\nAnswer:"
-    if passage is not None:
-        return f"Reference: {passage}\n\n{body}"
-    return body
-
-
 def build_cot_prompt(
     question: str,
     options: Dict[str, str],
@@ -184,10 +163,10 @@ def extract_answer_letter(text: str, valid_labels: set) -> str:
         提取到的答案字母，或 "?"。
     """
     patterns = [
-        r'[Tt]he answer is\s*([A-E])',
-        r'[Aa]nswer\s*:\s*([A-E])',
-        r'(?:option|choice)\s+([A-E])',
-        r'\b([A-E])\s*\.?\s*$',
+        r"[Tt]he answer is\s*([A-E])",
+        r"[Aa]nswer\s*:\s*([A-E])",
+        r"(?:option|choice)\s+([A-E])",
+        r"\b([A-E])\s*\.?\s*$",
     ]
     for p in patterns:
         m = re.search(p, text)
@@ -197,52 +176,38 @@ def extract_answer_letter(text: str, valid_labels: set) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Logprob 评分
+# CoT 生成评测
 # ---------------------------------------------------------------------------
 
 
 @torch.no_grad()
-def evaluate_logprob(
+def evaluate_cot(
     model: PreTrainedModel,
     tokenizer: PreTrainedTokenizerBase,
     prompt: str,
-    labels: List[str],
+    valid_labels: set,
     device: str = "cuda:0",
-) -> int:
-    """对多选 prompt 进行 loglikelihood 打分，返回最优选项索引。
+    max_new_tokens: int = 1024,
+) -> tuple:
+    """CoT 生成评测，返回 (提取的字母, 生成文本 token 数)。
 
     参数：
-        model: HuggingFace CausalLM 模型。
-        tokenizer: 对应的 tokenizer。
-        prompt: 已格式化的多选 prompt（以 "Answer:" 结尾）。
-        labels: 选项标签列表，如 ["A","B","C","D"] 或 ["A","B","C"]。
+        model: CausalLM 模型。
+        tokenizer: tokenizer。
+        prompt: CoT 格式的 prompt。
+        valid_labels: 合法选项字母集合。
         device: 推理设备。
+        max_new_tokens: 最大生成 token 数。
 
     返回：
-        最优选项索引 ∈ [0, len(labels)-1]。
+        (answer_letter, gen_length) — answer_letter 为 "?" 表示提取失败。
     """
-    context_ids: List[int] = tokenizer.encode(prompt, add_special_tokens=False)
-
-    scores: List[float] = []
-    for label in labels:
-        letter = " " + label
-        cont_ids: List[int] = tokenizer.encode(letter, add_special_tokens=False)
-        full_ids_list = context_ids + cont_ids
-        full_ids = torch.tensor([full_ids_list], dtype=torch.long, device=device)
-
-        outputs = model(input_ids=full_ids)
-        logits = outputs.logits
-
-        cont_start = len(context_ids) - 1
-        cont_end = len(full_ids_list) - 1
-        cont_logits = logits[0, cont_start:cont_end, :]
-        cont_tokens = torch.tensor(cont_ids, dtype=torch.long, device=device)
-
-        log_probs = F.log_softmax(cont_logits.float(), dim=-1)
-        token_ll = log_probs.gather(1, cont_tokens.unsqueeze(-1)).squeeze(-1)
-        scores.append(token_ll.sum().item())
-
-    return int(torch.tensor(scores).argmax().item())
+    ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+    out = model.generate(ids, max_new_tokens=max_new_tokens, do_sample=False)
+    gen_tokens = out[0][ids.shape[-1] :]
+    gen_text = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+    letter = extract_answer_letter(gen_text, valid_labels)
+    return letter, len(gen_tokens)
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +273,8 @@ def run_evaluation(
     output_dir: str = "results/baseline",
     n_samples: int = -1,
     device: str = "cuda:0",
+    compress_target_token: int = 64,
+    cot_max_new_tokens: int = 1024,
 ) -> Dict:
     """执行 baseline 评测的完整流程。
 
@@ -319,6 +286,8 @@ def run_evaluation(
         output_dir: 结果输出目录。
         n_samples: 评测样本数，-1 表示全部。
         device: 推理设备。
+        compress_target_token: LLMLingua-2 压缩目标 token 数。
+        cot_max_new_tokens: CoT 生成最大 token 数。
 
     返回：
         包含评测结果的字典（accuracy, correct, latency 等）。
@@ -332,16 +301,29 @@ def run_evaluation(
         has_text_config = False
     if has_text_config:
         import importlib
+
         arch_name = config.architectures[0]
         cls = getattr(importlib.import_module("transformers"), arch_name)
-        model = cls.from_pretrained(
-            model_path, dtype=torch.bfloat16, trust_remote_code=True,
-        ).to(device).eval()
+        model = (
+            cls.from_pretrained(
+                model_path,
+                dtype=torch.bfloat16,
+                trust_remote_code=True,
+            )
+            .to(device)
+            .eval()
+        )
         logger.info("多模态模型 (%s)，使用完整模型进行 text-only 推理", arch_name)
     else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, dtype=torch.bfloat16, trust_remote_code=True,
-        ).to(device).eval()
+        model = (
+            AutoModelForCausalLM.from_pretrained(
+                model_path,
+                dtype=torch.bfloat16,
+                trust_remote_code=True,
+            )
+            .to(device)
+            .eval()
+        )
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -354,34 +336,49 @@ def run_evaluation(
 
     # Phase 3: 逐条评测
     correct = 0
+    extract_success = 0
     latencies: List[float] = []
+    gen_lengths: List[int] = []
 
     for sample in tqdm(samples, desc=f"{method}/{dataset}"):
         options, correct_letter = normalize_options(
             sample["options"], sample["correct_letter"]
         )
         labels = sorted(options.keys())
-        label_to_idx = {lb: i for i, lb in enumerate(labels)}
 
-        passage = sample.get("passage") if method == "vanilla_rag" else None
-        prompt = build_mc_prompt(
+        passage = None
+        if method == "vanilla_rag":
+            raw_passage = sample.get("passage", "")
+            passage = compress_passage(raw_passage, target_token=compress_target_token)
+
+        prompt = build_cot_prompt(
             question=sample["question"],
             options=options,
             passage=passage,
         )
 
         t0 = time.perf_counter()
-        pred_idx = evaluate_logprob(model, tokenizer, prompt, labels=labels, device=device)
+        pred_letter, gen_len = evaluate_cot(
+            model,
+            tokenizer,
+            prompt,
+            valid_labels=set(labels),
+            device=device,
+            max_new_tokens=cot_max_new_tokens,
+        )
         latencies.append((time.perf_counter() - t0) * 1000)
+        gen_lengths.append(gen_len)
 
-        gold_idx = label_to_idx[correct_letter]
-        if pred_idx == gold_idx:
+        if pred_letter != "?":
+            extract_success += 1
+        if pred_letter == correct_letter:
             correct += 1
 
     # Phase 4: 汇总结果
     n_total = len(samples)
     accuracy = correct / n_total if n_total > 0 else 0.0
     latency_ms_mean = sum(latencies) / len(latencies) if latencies else 0.0
+    avg_gen_len = sum(gen_lengths) / len(gen_lengths) if gen_lengths else 0.0
 
     model_name = Path(model_path).name
     result = {
@@ -389,9 +386,19 @@ def run_evaluation(
         "model_path": model_path,
         "method": method,
         "dataset": dataset,
+        "scoring": "cot_nothink",
+        "compress_target_token": compress_target_token
+        if method == "vanilla_rag"
+        else None,
+        "cot_max_new_tokens": cot_max_new_tokens,
         "n_samples": n_total,
         "accuracy": round(accuracy, 4),
         "correct": correct,
+        "extract_success": extract_success,
+        "extract_success_rate": round(extract_success / n_total, 4)
+        if n_total > 0
+        else 0.0,
+        "avg_gen_length": round(avg_gen_len, 1),
         "latency_ms_mean": round(latency_ms_mean, 2),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
@@ -415,16 +422,38 @@ def run_evaluation(
 
 def main() -> None:
     """命令行入口，解析参数并启动评测。"""
-    parser = argparse.ArgumentParser(
-        description="No-Memory / VanillaRAG baseline 评测"
+    parser = argparse.ArgumentParser(description="No-Memory / VanillaRAG baseline 评测")
+    parser.add_argument(
+        "--model-path", type=str, required=True, help="HuggingFace 模型路径"
     )
-    parser.add_argument("--model-path", type=str, required=True, help="HuggingFace 模型路径")
-    parser.add_argument("--method", type=str, required=True, choices=["no_memory", "vanilla_rag"], help="评测方法")
+    parser.add_argument(
+        "--method",
+        type=str,
+        required=True,
+        choices=["no_memory", "vanilla_rag"],
+        help="评测方法",
+    )
     parser.add_argument("--dataset", type=str, required=True, help="数据集名称")
     parser.add_argument("--data-dir", type=str, default="data/ood", help="数据目录")
-    parser.add_argument("--output-dir", type=str, default="results/baseline", help="结果输出目录")
-    parser.add_argument("--n-samples", type=int, default=-1, help="评测样本数，-1 表示全部")
+    parser.add_argument(
+        "--output-dir", type=str, default="results/baseline", help="结果输出目录"
+    )
+    parser.add_argument(
+        "--n-samples", type=int, default=-1, help="评测样本数，-1 表示全部"
+    )
     parser.add_argument("--device", type=str, default="cuda:0", help="推理设备")
+    parser.add_argument(
+        "--compress-target-token",
+        type=int,
+        default=64,
+        help="LLMLingua-2 压缩目标 token 数 (默认: 64)",
+    )
+    parser.add_argument(
+        "--cot-max-new-tokens",
+        type=int,
+        default=1024,
+        help="CoT 生成最大 token 数 (默认: 1024)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -440,6 +469,8 @@ def main() -> None:
         output_dir=args.output_dir,
         n_samples=args.n_samples,
         device=args.device,
+        compress_target_token=args.compress_target_token,
+        cot_max_new_tokens=args.cot_max_new_tokens,
     )
 
 
