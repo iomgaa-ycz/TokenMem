@@ -1,0 +1,12 @@
+{
+  "model": "qwen3-4B",
+  "model_path": "hugglingface_model/qwen3-4B",
+  "method": "no_memory",
+  "dataset": "medqa",
+  "n_samples": 1273,
+  "accuracy": 0.5719,
+  "correct": 728,
+  "latency_ms_mean": 98.54,
+  "timestamp": "2026-04-27T15:36:13.462441+00:00",
+  "git_sha": "3c7e2e5"
+}

@@ -1,0 +1,12 @@
+{
+  "model": "qwen3-8B",
+  "model_path": "hugglingface_model/qwen3-8B",
+  "method": "vanilla_rag",
+  "dataset": "arc",
+  "n_samples": 1172,
+  "accuracy": 0.9966,
+  "correct": 1168,
+  "latency_ms_mean": 172.47,
+  "timestamp": "2026-04-27T16:15:42.845970+00:00",
+  "git_sha": "3c7e2e5"
+}

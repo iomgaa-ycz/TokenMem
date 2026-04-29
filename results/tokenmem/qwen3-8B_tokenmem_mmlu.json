@@ -1,0 +1,14 @@
+{
+  "model": "qwen3-8B",
+  "model_path": "hugglingface_model/qwen3-8B",
+  "method": "tokenmem",
+  "gate_dir": "checkpoints/qwen3-8b_sft/best",
+  "dataset": "mmlu",
+  "n_samples": 2,
+  "accuracy": 0.5,
+  "correct": 1,
+  "knowledge_max_len": 256,
+  "latency_ms_mean": 187.1,
+  "timestamp": "2026-04-28T11:11:07.512750+00:00",
+  "git_sha": "4a79a8d"
+}

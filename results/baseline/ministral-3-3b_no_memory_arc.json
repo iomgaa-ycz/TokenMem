@@ -1,0 +1,12 @@
+{
+  "model": "ministral-3-3b",
+  "model_path": "hugglingface_model/ministral-3-3b",
+  "method": "no_memory",
+  "dataset": "arc",
+  "n_samples": 1172,
+  "accuracy": 0.8635,
+  "correct": 1012,
+  "latency_ms_mean": 59.84,
+  "timestamp": "2026-04-27T19:46:11.565557+00:00",
+  "git_sha": "3c7e2e5"
+}

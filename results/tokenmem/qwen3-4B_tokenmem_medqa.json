@@ -1,0 +1,14 @@
+{
+  "model": "qwen3-4B",
+  "model_path": "hugglingface_model/qwen3-4B",
+  "method": "tokenmem",
+  "gate_dir": "checkpoints/qwen3-4b_sft/best",
+  "dataset": "medqa",
+  "n_samples": 1273,
+  "accuracy": 0.7117,
+  "correct": 906,
+  "knowledge_max_len": 256,
+  "latency_ms_mean": 175.36,
+  "timestamp": "2026-04-28T10:03:23.702769+00:00",
+  "git_sha": "73a47c0"
+}

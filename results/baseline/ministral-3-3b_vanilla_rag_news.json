@@ -1,0 +1,12 @@
+{
+  "model": "ministral-3-3b",
+  "model_path": "hugglingface_model/ministral-3-3b",
+  "method": "vanilla_rag",
+  "dataset": "news",
+  "n_samples": 8663,
+  "accuracy": 0.9728,
+  "correct": 8427,
+  "latency_ms_mean": 62.44,
+  "timestamp": "2026-04-28T03:48:39.759830+00:00",
+  "git_sha": "3c7e2e5"
+}

@@ -1,0 +1,12 @@
+{
+  "model": "gemma3-1b",
+  "model_path": "hugglingface_model/gemma3-1b",
+  "method": "no_memory",
+  "dataset": "news",
+  "n_samples": 8663,
+  "accuracy": 0.2399,
+  "correct": 2078,
+  "latency_ms_mean": 93.34,
+  "timestamp": "2026-04-28T03:50:45.164468+00:00",
+  "git_sha": "3c7e2e5"
+}
