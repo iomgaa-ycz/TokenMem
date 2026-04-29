@@ -24,7 +24,10 @@ echo "=== qwen3-0.6b / no_memory ==="
 # $COMMON --dataset arc     --data-dir data/ood
 # $COMMON --dataset mmlu    --data-dir data/ood
 
-# News（数据集就绪后取消注释）
-$COMMON --dataset news --data-dir data/news
+# $COMMON --dataset news --data-dir data/news
+
+$COMMON --dataset arc_easy       --data-dir data/ood
+$COMMON --dataset cf_arc_easy_val --data-dir data/counterfactual
+$COMMON --dataset cf_medqa_val    --data-dir data/counterfactual
 
 echo "=== qwen3-0.6b / no_memory 完成 ==="
