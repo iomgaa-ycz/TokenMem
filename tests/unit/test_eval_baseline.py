@@ -83,7 +83,7 @@ class TestBuildCotPrompt:
             options=options,
             passage=None,
         )
-        assert "/no_think" in prompt
+        assert "/no_think" not in prompt
         assert "Let's think step by step" in prompt
         assert "The answer is X" in prompt
         assert "Question:" in prompt
@@ -100,7 +100,7 @@ class TestBuildCotPrompt:
         )
         assert "France capital is Paris." in prompt
         assert "Reference:" not in prompt
-        assert "/no_think" in prompt
+        assert "/no_think" not in prompt
         assert "The answer is X" in prompt
 
 
@@ -137,3 +137,61 @@ class TestExtractAnswerLetter:
         assert (
             extract_answer_letter("I choose option A here", {"A", "B", "C", "D"}) == "A"
         )
+
+
+class TestSupportsThinking:
+    def test_qwen3_detected(self):
+        from unittest.mock import MagicMock
+
+        from evaluation.eval_baseline import _supports_thinking
+
+        tok = MagicMock()
+        tok.chat_template = "{% if enable_thinking is defined %}..."
+        assert _supports_thinking(tok) is True
+
+    def test_no_template(self):
+        from unittest.mock import MagicMock
+
+        from evaluation.eval_baseline import _supports_thinking
+
+        tok = MagicMock()
+        tok.chat_template = None
+        assert _supports_thinking(tok) is False
+
+    def test_non_qwen_template(self):
+        from unittest.mock import MagicMock
+
+        from evaluation.eval_baseline import _supports_thinking
+
+        tok = MagicMock()
+        tok.chat_template = "{% for message in messages %}..."
+        assert _supports_thinking(tok) is False
+
+
+class TestEvaluateCotReturnsTuple3:
+    def test_returns_three_elements(self):
+        from unittest.mock import MagicMock
+
+        import torch
+
+        from evaluation.eval_baseline import evaluate_cot
+
+        mock_tok = MagicMock()
+        mock_tok.chat_template = None
+        mock_tok.return_value = MagicMock(input_ids=torch.zeros(1, 5, dtype=torch.long))
+        mock_tok.decode.return_value = "The answer is A"
+
+        mock_model = MagicMock()
+        mock_model.generate.return_value = torch.zeros(1, 15, dtype=torch.long)
+
+        result = evaluate_cot(
+            mock_model,
+            mock_tok,
+            "test prompt",
+            {"A", "B", "C", "D"},
+            device="cpu",
+            max_new_tokens=64,
+        )
+        assert len(result) == 3
+        letter, gen_len, raw = result
+        assert isinstance(raw, str)
