@@ -82,6 +82,28 @@ class NewsQAOracleDataset(Dataset):
         }
 
 
+class OversampledDataset(Dataset):
+    """简单过采样包装器，通过索引取模将底层数据集重复 factor 次。
+
+    不复制数据，仅修改 __len__ 和 __getitem__ 的索引映射。
+
+    参数:
+        dataset: 底层 Dataset 实例。
+        factor: 过采样倍数，必须 >= 1。
+    """
+
+    def __init__(self, dataset: Dataset, factor: int = 2) -> None:
+        assert factor >= 1, f"过采样倍数必须 >= 1, 收到 {factor}"
+        self.dataset = dataset
+        self.factor = factor
+
+    def __len__(self) -> int:
+        return len(self.dataset) * self.factor
+
+    def __getitem__(self, idx: int) -> Dict[str, str]:
+        return self.dataset[idx % len(self.dataset)]
+
+
 class CounterfactualDataset(Dataset):
     """从反事实 JSONL 加载训练数据。
 

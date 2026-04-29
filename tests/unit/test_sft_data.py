@@ -8,7 +8,12 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from training.data import CounterfactualDataset, NewsQAOracleDataset, make_collate_fn
+from training.data import (
+    CounterfactualDataset,
+    NewsQAOracleDataset,
+    OversampledDataset,
+    make_collate_fn,
+)
 
 # ---------------------------------------------------------------------------
 # 公共 fixtures & mock 数据
@@ -328,3 +333,38 @@ class TestCounterfactualDataset:
         out = fn(batch)
         assert out["input_ids"].shape[0] == 2
         assert out["labels"].shape[0] == 2
+
+
+# ===================================================================
+# Task 4: TestOversampledDataset
+# ===================================================================
+
+
+class TestOversampledDataset:
+    """OversampledDataset 过采样包装器测试。"""
+
+    def test_length_factor_2(self, cf_jsonl_path: Path) -> None:
+        """2× 过采样后长度翻倍。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        oversampled = OversampledDataset(ds, factor=2)
+        assert len(oversampled) == len(ds) * 2  # 2 * 2 = 4
+
+    def test_length_factor_1(self, cf_jsonl_path: Path) -> None:
+        """1× 不改变长度。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        oversampled = OversampledDataset(ds, factor=1)
+        assert len(oversampled) == len(ds)
+
+    def test_getitem_wraps_around(self, cf_jsonl_path: Path) -> None:
+        """索引超过原始长度时循环取模。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        oversampled = OversampledDataset(ds, factor=2)
+        assert oversampled[0] == oversampled[2]  # idx 0 == idx 0+len(ds)
+        assert oversampled[1] == oversampled[3]  # idx 1 == idx 1+len(ds)
+
+    def test_getitem_returns_same_format(self, cf_jsonl_path: Path) -> None:
+        """返回格式与底层 dataset 一致。"""
+        ds = CounterfactualDataset(cf_jsonl_path, split="train")
+        oversampled = OversampledDataset(ds, factor=2)
+        item = oversampled[0]
+        assert set(item.keys()) == {"prompt", "answer", "knowledge_text"}
