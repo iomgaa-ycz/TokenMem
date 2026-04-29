@@ -1,235 +1,235 @@
-# FINAL PROPOSAL: TokenMem
+# FINAL PROPOSAL v3: TokenMem — Faithful Knowledge Injection
+
+**Date**: 2026-04-28 (v3, post GPT-5.4 3-round review)
+**Target venue**: NeurIPS 2026 (deadline 2026-05-03)
+**Prior work**: ExplicitLM (ICLR 2026, 本组), DecoupledRAG (WWW 2025, 机制来源)
+
+---
 
 ## 论文标题（候选）
-- *TokenMem: A Readable, Editable, and Portable Internalized Memory Pipeline for Frozen LLMs*
-- *Retrofitting Token-Level Memory into Frozen LLMs via Cross-Attention Adapters*
-- *TokenMem: Plug-and-Play Knowledge Memory for Large Language Models*
+- *TokenMem: Faithful Knowledge Injection into Frozen LLMs via Cross-Attention Adapters*
+- *Cross-Attention as a Faithful Knowledge Channel for Frozen LLMs*
+- *Learning to Trust External Knowledge: Cross-Attention Adapters for Conflict-Free Knowledge Injection*
 
 ---
 
-## Problem Anchor（防止scope drift）
+## 1. Problem Anchor
 
-**问题**: 现有LLM缺乏一个完整的内部化记忆系统——能够高效检索、在hidden-state层融合、支持运行时编辑、且跨模型通用的知识记忆方案。
+RAG（检索增强生成）是LLM使用外部知识的主流方案，但存在一个被忽视的结构性问题：**知识冲突（Knowledge Conflict）**。
 
-- RAG消耗context window，受限于"lost in the middle"
-- 参数编辑（ROME/MEMIT）不可逆，难以扩展
-- ExplicitLM（本组prior work）证明token记忆有效，但需预训练
-- 现有记忆系统最多测3个模型（KBLaM），无人验证6+模型通用性
+当检索到的知识与模型参数记忆矛盾时（例如：context说"日本首都是西京"，但模型知道"东京"），LLM在self-attention中同时处理两个冲突信号，导致：
+- 既不忠实跟随外部知识
+- 也不确信参数记忆
+- 输出不可预测（知识冲突文献: Longpre 2021, Xie 2024）
 
-**非目标**:
-- 不追求超越ExplicitLM的绝对性能（不同范式）
-- 不追求解决知识冲突检测（future work）
-- 不追求PKM高效检索（当前用FAISS，PKM留future work）
+**核心问题**: 能否为冻结LLM提供一条**不与参数记忆冲突的知识注入通道**？
 
 ---
 
-## 核心方法
+## 2. Method Thesis
 
-### 1. Pipeline总览
+> **TokenMem**: 通过cross-attention adapter为冻结LLM开辟一条**独立的知识通道**。
+> 该通道与self-attention的参数记忆通路分离，使模型能**忠实地遵从注入的知识**——
+> 无论该知识与参数记忆是否一致。
 
-```
-┌──────────────────────────────────────────────────────┐
-│                   TokenMem Pipeline                   │
-│                                                       │
-│  ┌────────────┐   ┌─────────────┐   ┌─────────────┐  │
-│  │  RETRIEVE   │──▶│    FUSE     │──▶│   UPDATE    │  │
-│  │             │   │             │   │             │  │
-│  │ FAISS       │   │ Cross-Attn  │   │ Token级     │  │
-│  │ top-k检索   │   │ 注入(借鉴    │   │ 增/删/编辑  │  │
-│  │             │   │ DecoupledRAG)│   │             │  │
-│  └────────────┘   └─────────────┘   └─────────────┘  │
-│                                                       │
-│  TokenMemoryBank (per-model): tokenized知识序列        │
-│  跨模型迁移: detokenize → retokenize                   │
-└──────────────────────────────────────────────────────┘
-```
-
-### 2. TokenMemoryBank (per-model)
-
-知识以**该模型tokenizer编码后的token序列**存储：
-
-```python
-class TokenMemoryBank:
-    """合并设计：内置tokenizer + FAISS索引，embedding由外部预计算。"""
-    _tokens: Tensor   # [capacity, fusion_length], dtype=long
-    _embs: Tensor     # [capacity, emb_dim], dtype=float32
-    _deleted: Tensor  # [capacity], dtype=bool, 软删除标记
-    _index: faiss.IndexIDMap  # 内置FAISS索引
-
-    def __init__(self, tokenizer, emb_dim, capacity=1M, fusion_length=256, ...): ...
-
-    def add(self, entries: List[Tuple[str, Tensor]]) -> List[int]:
-        """批量写入(text, embedding)对 → 内部tokenize → 存储 → 更新FAISS"""
-
-    def edit(self, entry_id: int, text: str, embedding: Tensor) -> None:
-        """重新tokenize → 更新embedding → 更新FAISS"""
-
-    def delete(self, entry_id: int) -> None:
-        """软删除 → 从FAISS移除 → 自动compact(>=30%阈值)"""
-
-    def audit(self, entry_id: int) -> str:
-        """tokenizer.decode(token_ids) → 人类可读文本"""
-
-    def migrate_to(self) -> List[str]:
-        """decode所有未删除条目 → 返回文本列表（调用方自行构建新bank）"""
-
-    def retrieve(self, query_emb, k) -> Tuple[LongTensor, Tensor]:
-        """FAISS top-k检索 → 返回(entry_ids, scores)"""
-
-    def get_token_ids(self, entry_ids) -> LongTensor:
-        """批量获取token_ids → 供推理时frozen LLM前向计算KV"""
-```
-
-> **实现细节见**: `memory_lora/token_bank.py` (已实现, 56/56测试通过)
-
-### 3. 知识检索: FAISS
-
-- 用LLM embedding层或sentence-transformers计算知识条目的embedding
-- FAISS索引: bank < 100K用flat brute-force, > 100K用IVF-PQ
-- 检索top-k条目的token_ids → frozen LLM全层forward → 逐层hidden states → strided sampling → cross-attention注入
-- PKM留作future work（需要解决key聚类平衡性问题）
-
-### 4. 知识融合: Cross-Attention（借鉴DecoupledRAG）
-
-```python
-class LinearFusion(nn.Module):
-    """每个注入层的融合门控（唯一可训练组件，照搬 DecoupledRAG）"""
-
-    def __init__(self, hidden_dim, rank=16, alpha=32, dropout_prob=0.2):
-        self.W_A = Parameter(randn(hidden_dim, rank) * 0.01)   # Gaussian σ=0.01
-        self.W_B = Parameter(zeros(rank, hidden_dim))            # Zero init
-        self.alpha = alpha
-        self.dropout_prob = dropout_prob
-
-    def forward(self, A, B):
-        """A: residual (self-attn+FFN), B: cross-attention output → A + alpha*(dropout(B)@W_A@W_B)"""
-        B = dropout(B, p=self.dropout_prob, training=self.training)
-        return A + self.alpha * (B @ self.W_A @ self.W_B)
-```
-
-**设计要点**（完全复刻 DecoupledRAG，已实现并验证）:
-- 基座LLM**完全冻结**，不使用LoRA微调基座
-- 只训练LinearFusion门控权重（每层一个，属性名 `gate_crossattention`）
-- W_B零初始化 → t=0时融合输出为零 → LLM原始能力完整保留
-- **注入位置：全部层**（与DecoupledRAG一致，非4层子集）
-- 知识编码：token_ids → frozen LLM全层forward(`output_hidden_states=True`) → 逐层hidden states → strided sampling到64 tokens
-- Cross-attention复用LLM自身QKV权重，不加RoPE，不加causal mask
-- 实现：fork transformers modeling文件（`memory_lora/modified_models/modeling_qwen3/mistral/gemma3.py`）
-
-### 5. 训练策略: 一次SFT，跨域泛化
+### 机制解释
 
 ```
-训练数据: News dataset 50K（时间分割，较早文章）
-  格式: (question, knowledge_passage, answer)
-  每条: question通过FAISS检索到knowledge → cross-attention(检索到的知识token_ids → 实时编码为KV) → 预测answer
+RAG (in-context, self-attention — 共享通路):
+  参数记忆: "东京" ←──┐
+                       ├─ 同一条self-attention → 知识冲突!
+  Context知识: "西京" ←─┘
+  → 模型左右互搏，输出不可靠
 
-训练配置:
-  可训练: 仅LinearFusion门控（每层的gate_crossattention, ~1-5M参数）
-  冻结: 基座LLM全部参数
-  epochs: 5
-  lr: 1e-3
-  batch_size: 16
-
-泛化验证:
-  ├── News test 10K（较新文章） → 时间泛化
-  ├── MedQA test              → 领域泛化（医学）
-  ├── ARC test                → 领域泛化（科学）
-  └── MMLU test               → 领域泛化（通用知识）
+TokenMem (cross-attention — 独立通路):
+  参数记忆: "东京" ─── self-attention (冻结，不受干扰)
+  外部知识: "西京" ─── cross-attention (专门训练的独立通道)
+                        │
+                        ▼
+  LinearFusion gate: 学会"cross-attn给的信号→用它"
+  → 两条通路分离 → 不互搏 → 知识被忠实使用
 ```
 
-**核心论点**: adapter学到的是"如何通过cross-attention利用外部知识"的通用能力，而非特定领域知识。训练一次后，知识bank可自由切换，无需重训练。
+### 与DecoupledRAG的关系（诚实声明）
 
-### 6. 多模型适配
-
-每个模型需要：
-1. **独立的TokenMemoryBank**: token_ids + cached_emb + 内置FAISS索引（用该模型tokenizer+embedding层）
-2. **独立的GateCrossAttention**: SFT训练融合权重
-
-跨模型迁移：`bank.migrate_to()` → 文本列表 → 新tokenizer+embedding重建新bank
-推理时KV计算：`bank.retrieve()` → `bank.get_token_ids()` → frozen LLM前向 → 实时得到KV供cross-attention
+- **借鉴**: Cross-attention注入机制（LinearFusion gate W_β = α·A_β·B_β 零初始化设计）
+- **新发现**: (1) 单域SFT跨域泛化 (2) 多模型验证 (3) **知识遵从性(compliance)分析——faithfulness发现**
+- DecoupledRAG是per-task SFT，不研究知识冲突，不做counterfactual实验
 
 ---
 
-## 实验策略
+## 3. 核心Claims（v3修订）
 
-### 核心思路
+### C1: 忠实的知识注入（核心科学发现）
 
-用**模型覆盖广度**作为核心evidence，基线精简到业内标准。
+Cross-attention注入的Knowledge Compliance显著高于RAG in-context注入。
 
-### 模型矩阵
+**评价指标**:
+- **Knowledge Compliance (KC)**: 模型回答与注入知识支持的答案一致的比例
+  - 正确知识: KC = accuracy
+  - 反事实知识: KC = %回答知识支持的错误答案
+- **Conflict Rate**: %回答既非正确也非知识支持的答案（互搏证据）
 
-| 模型 | 家族 | 参数量 | 目的 |
-|------|------|--------|------|
-| Qwen3-0.6B | Qwen | 0.6B | 最小规模验证 |
-| Qwen3-1.7B | Qwen | 1.7B | 同家族scaling |
-| Qwen3-4B | Qwen | 4B | 同家族scaling + **E2-E6默认模型** |
-| Qwen3-8B | Qwen | 8B | 大模型验证 |
-| Gemma3-1B | Google | 1B | 跨家族验证 |
-| Ministral-3B | Mistral | 3B | 跨家族验证 |
+**预期结果**:
 
-### 基线优先级
+| 方法 | 条件 | Accuracy | Compliance | Conflict Rate |
+|------|------|----------|------------|---------------|
+| No-Memory | — | ~57% | N/A | N/A |
+| TokenMem | 正确知识 | ~71% | ~71% | ~5% |
+| TokenMem | 反事实知识 | ~25% (低,预期) | ~65% **(高!)** | ~10% (低) |
+| RAG | 正确知识 | ~98% | ~98% | ~2% |
+| RAG | 反事实知识 | ~35% | ~40% **(低!)** | ~25% **(高!)** |
 
-```
-P0 (必做):
-├── No-Memory — 冻结LLM直推（下界）
-└── VanillaRAG — 检索+放入prompt
+**解读**: TokenMem反事实accuracy低是预期的（模型跟随了错误知识→"答错了"但compliance高→说明知识通道在工作）。RAG反事实compliance低+conflict高→知识冲突导致模型两边都不跟。
 
-P1 (推荐):
-└── DecoupledRAG — cross-attention注入但无持久记忆
+**状态**: ❌ 未验证 — 需要counterfactual compliance实验
 
-P2 (如果时间允许):
-└── LoRA+RAG
-```
+### C2: 跨领域泛化
 
-### 数据集
+News 50K SFT → MedQA +14pp, ARC +4.3pp, MMLU +8.4pp (4B)。
+adapter学到的是domain-agnostic的知识利用技能。
 
-| 数据集 | 规模 | 角色 | 说明 |
-|--------|------|------|------|
-| News train | 50K | **SFT训练** | 时间分割较早文章 |
-| News test | 10K | 测试(in-domain) | 时间分割较新文章 |
-| MedQA test | ~1.3K | 测试(out-of-domain) | 医学知识 |
-| ARC test | ~1.2K | 测试(out-of-domain) | 科学推理 |
-| MMLU test | ~14K | 测试(out-of-domain) | 综合知识 |
+**状态**: 🔄 部分支持 — 仅Qwen3-4B/8B
 
----
+### C3: 多模型通用性
 
-## 论文结构
+6模型 × 3家族（Qwen3-0.6B/1.7B/4B/8B, Gemma3-1B, Ministral-3B）。
 
-```
-1. Introduction
-   - LLM知识增强的局限
-   - 完整记忆pipeline需求
-   - TokenMem: 即插即用 + 6模型验证 + 跨域泛化
+**状态**: ❌ 未验证 — 仅2/6模型完成
 
-2. Related Work
-   - RAG及变体（VanillaRAG, DecoupledRAG）
-   - 显式记忆（ExplicitLM, MemoryLLM, KBLaM）
+### C4: 知识敏感性（C1的前提条件）
 
-3. Method: TokenMem Pipeline
-   - 3.1 TokenMemoryBank
-   - 3.2 FAISS检索
-   - 3.3 Cross-Attention融合
-   - 3.4 知识生命周期管理
-   - 3.5 多模型适配与迁移
+Oracle >> Shuffled ≈ Empty → adapter确实使用知识内容。
+没有C4，C1的高compliance可能被解释为"adapter太弱，什么都忽略"。
 
-4. Experiments
-   - 4.1 设置
-   - 4.2 多模型注入性能（E1, 核心表格）
-   - 4.3 跨领域泛化
-   - 4.4 知识编辑（E2）
-   - 4.5 消融（E3-E4）
-
-5. Analysis & Discussion
-6. Conclusion
-```
+**状态**: ❌ 未验证
 
 ---
 
-## 关键风险
+## 4. 实验计划
 
-| 风险 | 概率 | 应对 |
+### 4.1 P0 命脉实验
+
+**E-C4: Knowledge Sensitivity (C1的前提)**
+```
+条件: Oracle / Shuffled(随机错配知识) / Empty(无知识)
+模型: Qwen3-4B, 8B
+数据: MedQA, ARC, MMLU
+指标: Accuracy
+预期: Oracle >> Shuffled ≈ Empty
+时间: ~3h
+```
+
+**E-C1: Counterfactual Compliance (核心发现)**
+```
+数据准备: 对每道MCQ生成反事实知识段落（minimal-edit风格）
+  - 用DeepSeek V4 Flash生成支持错误答案B的段落
+  - 要求与正确段落结构相似，仅改关键事实
+条件: 正确知识 / 反事实知识
+方法: TokenMem / VanillaRAG / Strong-prompt RAG / No-Memory
+指标: Accuracy / Knowledge Compliance / Conflict Rate
+模型: Qwen3-4B (主), 8B (复制)
+时间: ~6h（含数据生成）
+```
+
+**E3: 公平基线（防止"trained vs untrained"攻击）**
+```
+Strong-prompt RAG:
+  prompt: "请只根据以下段落回答，即使与你所知不同：{passage}"
+  无需额外训练，仅修改prompt
+时间: ~2h
+```
+
+**E2 Conflict-Conditioned 分层分析（v3.1新增）**:
+```
+将题目按No-Memory准确率分为两组:
+  High-Prior: 模型本来答对的题（强参数记忆 → conflict激烈）
+  Low-Prior: 模型本来答错的题（弱参数记忆 → conflict温和）
+
+数据集选择:
+  ARC (常识): No-Memory 4B=86.8% → 大量High-Prior → conflict激烈
+  MedQA (专业): No-Memory 4B=57.2% → 大量Low-Prior → conflict温和
+
+预期: High-Prior组的KC差距 > Low-Prior组的KC差距
+  → 证明TokenMem优势来自"避免知识冲突"，不是"填充不确定性"
+```
+
+**E7: 效率数据（v3.1提升到P0）**
+```
+准确率输RAG → 必须有效率维度硬数据作为使用理由
+测量: 延迟(ms) / 峰值显存(MB) / context tokens consumed
+时间: ~2h
+```
+
+### 4.2 P1 支撑实验
+
+| 实验 | 时间 | 对应Claim |
+|------|------|----------|
+| 剩余4模型SFT+评测 | ~8h | C3 |
+| 8B MMLU补完 | ~2h | C2/C3 |
+| Domain-SFT消融 | ~4h | C2分析 |
+
+### 4.3 P2 深度分析
+
+| 实验 | 时间 | 说明 |
 |------|------|------|
-| 某模型adapter训不动 | 20% | 从6模型中去掉；5模型仍足够 |
-| Out-of-domain泛化差 | 20% | 增加SFT数据多样性；分析讨论 |
-| 8B训练时间超预期 | 20% | 优先4B；8B放supplementary |
-| Novelty质疑 | 40% | 6模型通用性+跨域泛化实验说话 |
+| Logit Lens分析 | ~4h | 逐层decode看RAG vs TokenMem在反事实下的"思考"差异 |
+| Gate激活分析 | ~2h | 正确vs反事实知识下gate行为是否一致 |
+| 因果追踪 | ~3h | 逐层关闭cross-attn测compliance变化 |
+| 注入层消融 | ~4h | 1/4/12/全层 |
+
+---
+
+## 5. Timeline (2026-04-28 → 2026-05-03)
+
+| Day | 日期 | 工作 | 产出 |
+|-----|------|------|------|
+| 3 | 04/29 | 反事实数据生成 + E1(Sensitivity) + E2开始 + 剩余模型SFT(并行) | E1结果 + counterfactual data |
+| 4 | 04/30 | E2完成(含conflict分层) + E3(strong prompt) + E7(效率) + 剩余模型评测 | **E2核心结果 + 决策** |
+| 5 | 05/01 | 消融(E5) + Domain-SFT(E6) + 论文写作开始 | 分析数据 + §1-§3 |
+| 6 | 05/02 | 论文写作（全天） | 初稿 |
+| 7 | 05/03 | 定稿 + 排版 + 提交 | 提交 |
+
+---
+
+## 6. Go/No-Go 决策点
+
+### Day 3 晚 (E-C4结果)
+| 结果 | 行动 |
+|------|------|
+| Oracle >> Shuffled ≈ Empty | ✅ C4成立，继续E-C1 |
+| Oracle ≈ Shuffled | ❌ adapter未使用知识。**停止C1实验**，重新评估 |
+
+### Day 4 晚 (E-C1结果)
+| 结果 | 行动 |
+|------|------|
+| TokenMem-CounterKC >> RAG-CounterKC | ✅ **论文核心成立**，全力写作 |
+| TokenMem-CounterKC ≈ RAG-CounterKC | ⚠️ faithfulness故事不成立。回退到C2+C3为主 |
+| Strong-prompt RAG抹平差距 | ⚠️ 说明是训练效应非架构效应。需要trained prompt baseline |
+
+---
+
+## 7. 审稿人攻击预案
+
+| 攻击 | 防御 |
+|------|------|
+| "DecoupledRAG + FAISS" | 诚实credit机制。新发现: faithfulness, 跨域泛化, 多模型。这是finding paper |
+| "RAG也有持久化/可编辑" | 不作为差异化claim。唯一结构差异: 注入方式(cross-attn vs in-context) |
+| "Compliance高=adapter太弱" | C4(Oracle>>Empty)证明adapter在用知识。C4+C1组合排除此解释 |
+| "trained vs untrained不公平" | Strong-prompt RAG + trained prompt baseline |
+| "反事实段落有artifact" | minimal-edit生成 + 与正确段落同格式同长度 |
+| "高compliance to false knowledge = gullibility/安全风险" | **"刀无罪"论证**：Faithfulness/Compliance是知识通道的固有属性（可控性），不是安全claim。一个忠实的翻译器会翻译任何文本，包括错误信息——这不是翻译器的问题，而是输入的问题。同理，TokenMem的高compliance说明知识通道**可控**——用户放什么知识进去，模型就用什么。知识的正确性是上游（检索器/知识库管理）的责任，不是注入通道的责任。RAG的低compliance反而说明in-context通道**不可控**——你放了知识进去但模型不一定用。 |
+| "OOD提升小(ARC +4pp)" | ARC headroom仅12.8pp; Recovery Rate跨OOD一致(~33%) |
+| "没有效率数据" | E7提升到P0，补测延迟/显存/throughput |
+| "faithfulness to false knowledge不是好事" | frame为"可控性诊断"——测量知识通道的权威性，不是鼓励使用错误知识 |
+
+---
+
+## 8. 本方案明确不做的事
+
+- **不claim "TokenMem > RAG on accuracy"** — 准确率差距是结构性的
+- **不claim "RAG缺少持久化/可编辑"** — 审稿人已击穿此论点
+- **不claim "零context token是质变"** — 降为tradeoff表格中一行
+- **不做multi-hop QA** — 当前单记忆注入设计
+- **不做KBLaM/MemoryLLM直接实验对比** — 不同regime，Related Work论证划开
+- **不过度claim机制解释** — 说"reduced competition"不说"no conflict"

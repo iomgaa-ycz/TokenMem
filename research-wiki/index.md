@@ -3,11 +3,11 @@
 **项目**: TokenMem — 面向冻结LLM的即插即用内部化记忆pipeline
 **目标**: NeurIPS 2026
 **Prior Work**: ExplicitLM (ICLR 2026, 本组)
-**Last Updated**: 2026-04-26
+**Last Updated**: 2026-04-28 (v3 Faithful Injection Framing)
 
 ---
 
-## Papers (8)
+## Papers (9)
 
 ### 本组前序工作
 - [ExplicitLM](papers/explicitlm2025.md) — token记忆+PKM，需预训练 (ICLR 2026) `paper:explicitlm2025`
@@ -36,38 +36,57 @@
 
 | ID | 名称 | 状态 | 结果 |
 |----|------|------|------|
-| [idea:001](ideas/001_tokenmem.md) | **TokenMem** | 🟢 active | pending |
+| [idea:001](ideas/001_tokenmem.md) | **TokenMem** | 🟢 active (v3 faithful injection) | pending core experiments |
 | [idea:002](ideas/002_memorybridge.md) | MemoryBridge | 🔴 eliminated | 单点贡献不足 |
 | [idea:003](ideas/003_editmem.md) | EditMem | 🔴 eliminated | 与KE领域期望gap |
 | [idea:004](ideas/004_convomem.md) | ConvoMem | 🔴 eliminated | 提取质量混淆 |
 
 ---
 
-## Claims (4)
+## Claims (4, v3修订)
 
-| ID | Claim | 状态 | 阈值 |
-|----|-------|------|------|
-| [C1](claims/C1.md) | 6模型通用性 | ⏳ pending | ≥5/6模型有效 |
-| [C2](claims/C2.md) | 跨领域泛化 | ⏳ pending | OOD >5%提升 |
-| [C3](claims/C3.md) | 知识编辑 | ⏳ pending | ESR>80%, <1s |
-| [C4](claims/C4.md) | 超越VanillaRAG | ⏳ pending | ≥4/6模型 |
+| ID | Claim | 状态 | 阈值 | 审稿评估 |
+|----|-------|------|------|---------|
+| [C1](claims/C1.md) | **忠实知识注入** (Faithful Injection) | ❌ pending | TM counterfactual KC > RAG by ≥15pp | GPT: "first real NeurIPS argument" |
+| [C2](claims/C2.md) | 跨领域泛化 | 🔄 partial | OOD >5%提升, ≥2家族 | GPT: "partial, only 2 Qwen models" |
+| [C3](claims/C3.md) | 多模型通用性 | ❌ pending | ≥5/6模型有效 | GPT: "no, need cross-family" |
+| [C4](claims/C4.md) | 知识敏感性 (C1前提) | ❌ pending | Oracle >> Shuffled ≈ Empty | GPT: "mandatory sanity check" |
+
+**v3变更说明**: 原C4"超越VanillaRAG"已invalidated并重定义。C1为v3新增核心claim。C4从"超越RAG"改为"知识敏感性"作为C1的前提条件。
 
 ---
 
-## Gaps (5)
+## Gaps (5, v3修订)
 
 见 [gap_map.md](gap_map.md)
 
-| ID | Gap | 状态 | 目标方案 |
-|----|-----|------|---------|
-| G1 | 多模型通用性验证 | 未解决 | idea:001 |
-| G2 | 冻结LLM即插即用记忆 | 未解决 | idea:001 |
-| G3 | 完整记忆pipeline | 未解决 | idea:001 |
-| G4 | 动态知识管理 | 未解决 | idea:001 |
-| G5 | 跨领域泛化 | 未解决 | idea:001 |
+| ID | Gap | 状态 | 优先级 |
+|----|-----|------|--------|
+| G1 | **知识冲突下的注入忠实性** | 🔴 核心 — v3新增 | P0 |
+| G2 | 多模型通用性验证 | 未解决 | P1 |
+| G3 | 冻结LLM即插即用记忆 | 部分解决 | P1 |
+| G4 | 跨领域泛化 | 部分解决 | P1 |
+| G5 | 完整记忆pipeline | 部分解决 | P2 |
 
 ---
 
-## Experiments (0)
+## Experiments (3)
 
-尚未执行。计划见 [EXPERIMENT_PLAN.md](../refine-logs/EXPERIMENT_PLAN.md)。
+| ID | 名称 | 状态 | 关键发现 |
+|----|------|------|---------|
+| [exp:E0_news_dataset](experiments/E0_news_dataset.md) | E0 News Dataset (58,663 MCQ) | ✅ completed | 25源/6类/50K train+8.6K val |
+| [exp:E1_baseline](experiments/E1_baseline.md) | E1 Baseline (No-Memory + VanillaRAG, 4 datasets) | ✅ completed | 48 JSON; VanillaRAG天花板88-99% |
+| [exp:E1_tokenmem](experiments/E1_tokenmem.md) | E1 TokenMem (4B/8B, 4 datasets) | 🔄 in_progress | 7/8已测全部>NM; Recovery 29-74% |
+
+---
+
+## GPT-5.4 External Review Log
+
+| 轮次 | 版本 | 评分 | 关键反馈 |
+|------|------|------|---------|
+| R1 | v1 (系统pipeline) | 3/10 | "DecoupledRAG+FAISS"; RAG也有持久化/可编辑 |
+| R2 | v2 (噪声鲁棒性) | 5/10 | "attenuation not robustness"; 需utility-harm frontier |
+| R3 | v3 (忠实注入) | **6/10** | "first real NeurIPS argument"; 需trained prompt baseline |
+| R2C | result-to-claim | — | C1:no, C2:partial, C3:no, C4:no |
+
+Thread IDs: review `019dd460-2fc8-7ad3-8f0e-cdc80df6dbfc`, r2c `019dd4fa-b0dd-7762-98d1-b4ca0c12c789`

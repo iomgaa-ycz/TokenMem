@@ -1,236 +1,295 @@
-# EXPERIMENT PLAN: TokenMem
+# EXPERIMENT PLAN: TokenMem (v3.1 — post independent review)
 
 **目标会议**: NeurIPS 2026
 **截止日期**: 2026-05-03
 **可用资源**: 8x RTX 4090 (4090-serve) + 本地 4070 Ti Super + 8x A100 (需手动启动)
+**当前日期**: 2026-04-28 (Day 2 晚)
+**v3.1修订**: 基于独立Codex审稿(4/10)反馈，强化E1控制组 + E2分层分析 + E7提升优先级
 
 ---
 
 ## 一、实验总览
 
-| 编号 | 名称 | 优先级 | 模型 | 内容 |
-|------|------|--------|------|------|
-| **E1** | 多模型注入性能 | P0 | 全部6个 | 6模型×4数据集，TokenMem vs No-Memory vs VanillaRAG |
-| **E2** | 知识编辑验证 | P1 | Qwen3-4B | 编辑记忆→验证输出变化 |
-| **E3** | 消融：注入层 | P1 | Qwen3-4B | 注入层数和位置的影响 |
-| **E4** | 消融：adapter设计 | P2 | Qwen3-4B | LoRA rank / 是否LoRA基座 |
-| **E5** | DecoupledRAG基线 | P1 | Qwen3-4B | cross-attention注入但无持久记忆 |
-| **E6** | 检索效率 | P2 | Qwen3-4B | FAISS flat vs IVF在不同bank规模 |
+| 编号 | 名称 | 优先级 | 模型 | 内容 | 状态 |
+|------|------|--------|------|------|------|
+| **E1** | Knowledge Sensitivity | **P0** | 4B, 8B | Oracle / Topic-Matched-Wrong / Empty → C4 | ❌ |
+| **E2** | Counterfactual Compliance | **P0** | 4B, 8B | 正确/反事实 × RAG vs TM + **conflict-conditioned分层** → C1 | ❌ |
+| **E3** | 公平基线 | **P0** | 4B | Strong-prompt RAG → 防"trained vs untrained"攻击 | ❌ |
+| **E4** | 多模型注入性能 | **P0** | 全部6个 | 6模型×4数据集 → C2/C3 | 🔄 2/6完成 |
+| **E7** | 效率数据 | **P0** | 4B | 延迟/显存/throughput → 准确率输RAG的补偿论据 | ❌ |
+| E5 | 消融：注入层 | P1 | 4B | 注入层数和位置的影响 | ❌ |
+| E6 | Domain-SFT消融 | P1 | 4B | News vs MedQA SFT → C2分析 | ❌ |
+| E8 | 知识编辑 | P2 | 4B | 编辑记忆→输出变化 | ❌ |
+| E9 | 机制分析 | P2 | 4B | Logit Lens + Gate分析 + 因果追踪 | ❌ |
+| E10 | 消融：adapter设计 | P2 | 4B | rank/基座LoRA | ❌ |
+
+**v3.1变更**: E7从P1提升到P0（准确率输RAG时必须有效率维度的硬数据补偿）。E1控制组从Shuffled改为Topic-Matched-Wrong。E2新增conflict-conditioned分层。
 
 ---
 
 ## 二、模型矩阵
 
-| 模型 | 家族 | 参数量 | Hidden Dim | 层数 | 注入层 | LinearFusion参数 | 角色 |
-|------|------|--------|-----------|------|--------|-----------------|------|
-| Qwen3-0.6B | Qwen | 0.6B | 1024 | 28 | 全部28层 | 917K | 最小规模 |
-| Qwen3-1.7B | Qwen | 1.7B | 2048 | 28 | 全部28层 | 1.84M | 同家族scaling |
-| Qwen3-4B | Qwen | 4B | 2560 | 36 | 全部36层 | 2.95M | **默认基线模型** |
-| Qwen3-8B | Qwen | 8B | 4096 | 36 | 全部36层 | 4.72M | 大模型验证 |
-| Gemma3-1B | Google | 1B | 1152 | 26 | 全部26层 | 0.96M | 跨家族 |
-| Ministral-3B | Mistral | 3B | 2560 | 24 | 全部24层 | 1.97M | 跨家族 | ⚠️ 待下载config后确认 |
-
-注入层策略：**全部层注入**（与DecoupledRAG一致）。E3消融实验中比较1/2/4/全层配置。
+| 模型 | 家族 | 参数量 | Hidden Dim | 层数 | LinearFusion参数 | SFT状态 | E4状态 |
+|------|------|--------|-----------|------|-----------------|---------|--------|
+| Qwen3-0.6B | Qwen | 0.6B | 1024 | 28 | 917K | ❌ | ❌ |
+| Qwen3-1.7B | Qwen | 1.7B | 2048 | 28 | 1.84M | ❌ | ❌ |
+| **Qwen3-4B** | Qwen | 4B | 2560 | 36 | **2.95M** | ✅ | ✅ 4/4 ds |
+| **Qwen3-8B** | Qwen | 8B | 4096 | 36 | **4.72M** | ✅ | 🔄 3/4 ds |
+| Gemma3-1B | Google | 1B | 1152 | 26 | 0.96M | ❌ | ❌ (⚠️ baseline失效) |
+| Ministral-3B | Mistral | 3B | 2560 | 24 | 1.97M | ❌ | ❌ |
 
 ---
 
 ## 三、训练配置
 
-### SFT（per-model，唯一训练阶段）
-
 ```yaml
-data: News train 50K（时间分割较早文章）
-format: (question, passage原文作为knowledge, answer_letter)
+data: News train 50K
 epochs: 5
-optimizer: Lamb  # 对标 DecoupledRAG（torch_optimizer.Lamb）
-lr: 1e-3
+optimizer: Lamb, lr=1e-3
 batch_size: 16
-scheduler: LinearLR(start_factor=1/3, total_iters=10)  # 10步warmup
-trainable: 仅gate_crossattention（per-layer LinearFusion W_A + W_B）
+scheduler: LinearLR(start_factor=1/3, total_iters=10)
+trainable: 仅gate_crossattention
 frozen: 基座LLM全部参数
-gradient_checkpointing: false（48GB 4090 无需启用，保留为CLI flag备用）
-知识输入: passage原文直接tokenize（预留compressed_text接口）
-配置方式: 纯CLI args（无YAML），每模型一个sh文件写死全部参数
 ```
-
-### 预计SFT时间（单卡4090）
-
-| 模型 | SFT时间 |
-|------|--------|
-| Qwen3-0.6B | ~30min |
-| Qwen3-1.7B | ~1h |
-| Qwen3-4B | ~2h |
-| Qwen3-8B | ~4h |
-| Gemma3-1B | ~45min |
-| Ministral-3B | ~1.5h |
-
-**6模型总计**: ~10h单卡 → 8卡并行 ≈ ~1.5h wall-clock
 
 ---
 
-## 四、详细实验设计
+## 四、核心实验详细设计
 
-### E1: 多模型注入性能（核心实验，P0）
+### E1: Knowledge Sensitivity（C1前提条件）
 
-**目的**: 证明TokenMem pipeline在6个模型×4个数据集上有效
+**目的**: 证明adapter精确使用知识内容，排除"对任何信号都响应"的假设
 
-**设置**:
-- 6模型, SFT on News 50K
-- Oracle条件: 直接提供正确知识条目
-- 基线: No-Memory, VanillaRAG (top-1检索放入prompt)
-
-**数据集**:
-| 数据集 | 角色 | 规模 |
-|--------|------|------|
-| News test | in-domain (时间泛化) | 10K |
-| MedQA test | out-of-domain | ~1.3K |
-| ARC test | out-of-domain | ~1.2K |
-| MMLU test | out-of-domain | ~14K |
-
-**预期结果表格**:
-```
-| Model        | Dataset | No-Memory | VanillaRAG | TokenMem | Δ(vs NM) |
-|--------------|---------|-----------|------------|----------|----------|
-| Qwen3-0.6B  | News    | ?         | ?          | ?        | +?       |
-| Qwen3-0.6B  | MedQA   | ?         | ?          | ?        | +?       |
-| Qwen3-0.6B  | ARC     | ?         | ?          | ?        | +?       |
-| Qwen3-0.6B  | MMLU    | ?         | ?          | ?        | +?       |
-| ...          | ...     | ...       | ...        | ...      | ...      |
-| Ministral-3B | MMLU    | ?         | ?          | ?        | +?       |
-```
-
-**成功标准**: ≥5/6模型在≥3/4数据集上TokenMem > No-Memory（含out-of-domain）
-
----
-
-### E2: 知识编辑验证（P1, Qwen3-4B）
-
-**目的**: 编辑记忆条目 → LLM输出立即变化
+**v3.1关键改进**: 将Shuffled（随机错配）替换为**Topic-Matched-Wrong**（话题相关但答案错误的流畅段落）。随机错配只能证明"模型能忽略垃圾"，Topic-Matched-Wrong才能证明"模型区分正确知识和看似合理的错误知识"。
 
 **设计**:
-1. 从News test选100条知识
-2. 逐条编辑（替换正确答案为另一个选项）
-3. 验证编辑前后输出变化
+```
+条件:
+  Oracle         — 正确的知识段落 (190-256 tok)
+  Topic-Matched  — 同话题但支持错误答案的流畅段落（从E2反事实数据复用）
+  Empty          — 无知识注入（padding / null knowledge）
 
-**指标**:
-- Edit Success Rate: 编辑后输出跟随变化的比例
-- Edit Latency: 单条编辑的wall-clock时间
+模型: Qwen3-4B (主), Qwen3-8B (复制)
+数据: ARC (常识), MedQA (专业知识)
+指标: Accuracy
+```
 
----
+**Topic-Matched-Wrong 生成**: 直接复用 E2 的反事实知识段落——同话题、流畅、但支持错误答案。
 
-### E3: 消融——注入层（P1, Qwen3-4B）
-
-**设置**: Qwen3-4B, News test
-- 1层注入: [16] / [24] / [32]
-- 2层注入: [16,32]
-- 4层注入: [8,16,24,32] (默认)
-- 全层注入: 所有36层
-
----
-
-### E4: 消融——adapter设计（P2, Qwen3-4B）
-
-**设置**: Qwen3-4B, News test
-- LoRA rank: 4, 8, 16(默认), 32
-- 对比: 仅GateCrossAttention vs GateCrossAttention + 基座LoRA(q/k/v/o)
+**成功标准**: Oracle > Topic-Matched > Empty; Oracle - Empty ≥ 10pp
+**预计时间**: ~2h（与E2共享反事实数据，无额外生成成本）
+**依赖**: 反事实知识段落（与E2数据生成共享）
 
 ---
 
-### E5: DecoupledRAG基线（P1, Qwen3-4B）
+### E2: Counterfactual Compliance（核心发现）
 
-**目的**: 与最接近的cross-attention注入方法对比
+**目的**: 证明cross-attention注入的知识遵从率高于RAG in-context注入
 
-**关键区别**:
-- DecoupledRAG: 每次推理实时编码文档KV → 无持久记忆
-- TokenMem: 离线缓存KV + 持久记忆bank → 支持编辑+检索
+**v3.1关键改进**: 新增 **conflict-conditioned 分层分析**。
 
-**指标**: 除Accuracy外，对比推理延迟（TokenMem有KV缓存优势）
+**数据准备 — 反事实知识生成**:
+```
+对每道MCQ (Q, 正确答案A, 错误答案B):
+  用DeepSeek V4 Flash生成支持B的段落
+  要求: minimal-edit风格，与正确段落同格式同长度(150-200词)
+
+数据集: ARC (~1.2K, 常识类), MedQA (~1.3K, 专业知识类)
+  → ARC: 模型参数记忆较强（No-Memory 4B=86.8%），conflict更激烈
+  → MedQA: 模型参数记忆较弱（No-Memory 4B=57.2%），conflict较温和
+  → 两个数据集对比可验证"conflict越强 → TokenMem优势越大"假说
+生成时间: ~2h (API调用)
+```
+
+**实验设计**:
+```
+条件: 正确知识 / 反事实知识
+方法:
+  - No-Memory (无知识)
+  - TokenMem-Oracle (正确知识 → cross-attn)
+  - TokenMem-Counter (反事实知识 → cross-attn)
+  - RAG-Oracle (正确知识 → prompt)
+  - RAG-Counter (反事实知识 → prompt)
+  - StrongRAG-Counter (反事实知识 → prompt + 指令)  ← E3
+
+模型: Qwen3-4B (主), Qwen3-8B (复制)
+数据: ARC (常识), MedQA (专业知识)
+```
+
+**三指标**:
+```
+Accuracy: 匹配ground truth
+Knowledge Compliance (KC):
+  正确知识: KC = accuracy
+  反事实知识: KC = %回答B（知识支持的答案）
+Conflict Rate: %回答既非A也非B
+```
+
+**Conflict-Conditioned 分层分析（v3.1新增）**:
+```
+将每道题按No-Memory准确率分为两组:
+  High-Prior组: No-Memory时模型答对的题（模型有强参数记忆）
+  Low-Prior组: No-Memory时模型答错的题（模型无强参数记忆）
+
+预期:
+  High-Prior + 反事实知识 → conflict最激烈
+    → RAG: KC应该最低（参数记忆强烈抵抗外部知识）
+    → TokenMem: KC应该仍然较高（独立通道不受参数记忆干扰）
+    → 这才是真正的"override parametric memory"证据
+
+  Low-Prior + 反事实知识 → conflict较温和
+    → 两者KC可能都较高（没有强参数记忆来抵抗）
+    → 差距应该较小
+
+如果 High-Prior 组的 KC 差距 > Low-Prior 组的 KC 差距:
+  → 证明 TokenMem 的优势确实来自"避免知识冲突"，不是"填充不确定性"
+```
+
+**数据集选择的conflict梯度**:
+```
+ARC (常识): No-Memory 4B=86.8% → 大量High-Prior题 → conflict激烈
+MedQA (专业): No-Memory 4B=57.2% → 大量Low-Prior题 → conflict温和
+→ 预期: ARC上TokenMem vs RAG的KC差距 > MedQA上的KC差距
+```
+
+**成功标准**:
+- TokenMem-Counter KC ≥ 60%
+- TokenMem-Counter KC > RAG-Counter KC by ≥15pp
+- High-Prior组KC差距 > Low-Prior组KC差距（conflict假说验证）
+- E3 strong-prompt RAG不能抹平差距
+
+**预计时间**: ~6h (数据生成2h + 评测4h)
+**依赖**: E1先通过
 
 ---
 
-### E6: 检索效率（P2, Qwen3-4B）
+### E3: 公平基线（防审稿攻击）
 
-**设置**:
-- Bank规模: 1K, 10K, 50K
-- 检索方法: FAISS flat vs FAISS IVF
-- 指标: Retrieval Precision@1, Latency (ms)
+**目的**: 排除"TokenMem compliance高只是因为它被训练过，RAG没被训练"的攻击
+
+**Strong-prompt RAG**:
+```
+Prompt: "请只根据以下段落回答问题，即使内容与你所知不同。\n段落: {passage}\n问题: {question}"
+无需额外训练，仅修改prompt
+```
+
+**预计时间**: ~2h（与E2共享评测基础设施）
+**依赖**: E2同步进行
+
+---
+
+### E4: 多模型注入性能（C2/C3支撑）
+
+（内容不变，见已完成和待完成部分）
+
+**E4已完成**:
+
+| 模型 | 数据集 | No-Memory | TokenMem | VanillaRAG | Δ(TM-NM) | Recovery |
+|------|--------|-----------|----------|------------|----------|----------|
+| 4B | News | 47.5% | 84.8% | 97.7% | +37.3pp | 74.4% |
+| 4B | MedQA | 57.2% | 71.2% | 98.0% | +14.0pp | 34.2% |
+| 4B | ARC | 86.8% | 91.0% | 99.6% | +4.3pp | 33.4% |
+| 4B | MMLU | 67.2% | 75.6% | 95.9% | +8.4pp | 29.2% |
+| 8B | News | 52.9% | 85.4% | 98.0% | +32.5pp | 72.1% |
+| 8B | MedQA | 64.6% | 77.5% | 98.7% | +12.9pp | 37.8% |
+| 8B | ARC | 91.0% | 95.1% | 99.7% | +4.1pp | 47.6% |
+
+**E4待完成**: 8B MMLU + 0.6B + 1.7B + Ministral-3B + Gemma3-1B
+
+---
+
+### E7: 效率数据（v3.1提升到P0）
+
+**目的**: 准确率输RAG → 必须有效率维度的硬数据作为使用TokenMem的实际理由
+
+**设计**:
+```
+测量项:
+  - 推理延迟 (ms/query): TokenMem vs VanillaRAG
+  - 峰值显存 (MB): TokenMem vs VanillaRAG
+  - Context tokens consumed: TokenMem=0 vs RAG=190-256
+  - 知识预计算是否可缓存 + 缓存后的推理延迟
+
+模型: Qwen3-4B
+数据: MedQA (warmup=10, measure=200)
+```
+
+**预计时间**: ~2h
+
+---
+
+### E5-E10: 其他实验
+
+| 编号 | 内容 | 优先级 | 时间 |
+|------|------|--------|------|
+| E5 | 注入层消融 (1/4/12/全层, 4B) | P1 | ~4h |
+| E6 | Domain-SFT消融 (News vs MedQA SFT, 4B) | P1 | ~4h |
+| E8 | 知识编辑 | P2 | ~3h |
+| E9 | 机制分析 (Logit Lens + Gate + 因果追踪) | P2 | ~6h |
+| E10 | adapter设计消融 | P2 | ~4h |
 
 ---
 
 ## 五、数据准备
 
-### News数据集扩展
+### 已完成
+- ✅ News 50K train / 10K test
+- ✅ TokenMemoryBank (4B, 8B × 4 datasets)
+- ✅ Baseline JSON (48个)
 
-```bash
-# 扩展News数据集到60K
-# 时间分割: 较早50K用于SFT训练, 较新10K用于测试
-python -m tools.expand_news_dataset --target_size 60000
-python -m tools.split_by_time --input data/news/qa_full.jsonl \
-  --train_output data/news/qa_train.jsonl \
-  --test_output data/news/qa_test.jsonl \
-  --test_size 10000
-```
-
-### TokenMemoryBank构建（per-model, per-dataset）
-
-```bash
-# 对每个模型×每个数据集构建bank（存储token_ids + cached_emb）
-for model in qwen3-0.6B qwen3-1.7b qwen3-4b qwen3-8b gemma3-1b ministral-3b; do
-  for dataset in news medqa arc mmlu; do
-    python -m tools.build_token_bank \
-      --dataset $dataset \
-      --model $model \
-      --fusion_length 256 \
-      --output data/tokenbank_${model}_${dataset}.pt
-    # 产出: {token_ids: [N, 256], cached_emb: [N, emb_dim]}
-  done
-done
-```
-
-### FAISS索引
-
-FAISS索引内置于TokenMemoryBank中，`bank.load()` 时自动从 `_embs` 重建，无需单独构建脚本。
+### 待完成
+- ❌ **反事实知识段落**: ARC ~1.2K + MedQA ~1.3K（E1和E2共用）
+- ❌ 剩余4模型的TokenMemoryBank
 
 ---
 
 ## 六、Experiment Tracker
 
-| 实验 | 模型 | 预期开始 | 预期完成 | 实际开始 | 实际完成 | 结果 | 状态 |
-|------|------|---------|---------|---------|---------|------|------|
-| TokenMemoryBank | - | Day 1 | Day 1 | Day 1 | Day 1 | 56/56测试通过 | ✅ |
-| 代码实现(其余) | - | Day 1 | Day 2 | - | - | - | ⏳ |
-| News扩展 | - | Day 1 | Day 1 | - | - | - | ⏳ |
-| Bank+FAISS构建 | all | Day 2 | Day 2 | - | - | - | ⏳ |
-| E1-SFT | Qwen3-0.6B | Day 2 | Day 2 | - | - | - | ⏳ |
-| E1-SFT | Qwen3-1.7B | Day 2 | Day 2 | - | - | - | ⏳ |
-| E1-SFT | Qwen3-4B | Day 2 | Day 2 | - | - | - | ⏳ |
-| E1-SFT | Gemma3-1B | Day 2 | Day 2 | - | - | - | ⏳ |
-| E1-SFT | Ministral-3B | Day 2 | Day 3 | - | - | - | ⏳ |
-| E1-SFT | Qwen3-8B | Day 3 | Day 3 | - | - | - | ⏳ |
-| E1-eval | 6模型×4数据集 | Day 3 | Day 3 | - | - | - | ⏳ |
-| E5 | Qwen3-4B | Day 3 | Day 4 | - | - | - | ⏳ |
-| E2 | Qwen3-4B | Day 4 | Day 4 | - | - | - | ⏳ |
-| E3 | Qwen3-4B | Day 4 | Day 4 | - | - | - | ⏳ |
-| E4 | Qwen3-4B | Day 4 | Day 5 | - | - | - | ⏳ |
-| E6 | Qwen3-4B | Day 5 | Day 5 | - | - | - | ⏳ |
-| 论文写作 | - | Day 4 | Day 7 | - | - | - | ⏳ |
+| 实验 | 模型 | 预期 | 实际开始 | 实际完成 | 结果 | 状态 |
+|------|------|------|---------|---------|------|------|
+| 代码实现 | - | Day1 | Day1 | Day1 | 137/137 tests | ✅ |
+| Baseline | 6模型 | Day1-2 | 4/27 23:34 | 4/28 12:27 | 48 JSON | ✅ |
+| E4-SFT | 4B | Day2 | 4/28 | 4/28 | val_loss=0.5279 | ✅ |
+| E4-SFT | 8B | Day2 | 4/28 | 4/28 | val_loss=0.4804 | ✅ |
+| E4-eval | 4B (4ds) | Day2 | 4/28 17:30 | 4/28 18:55 | +37.3/+14.0/+4.3/+8.4 | ✅ |
+| E4-eval | 8B (3ds) | Day2 | 4/28 19:11 | 4/28 ~20:30 | +32.5/+12.9/+4.1 | ✅ |
+| **反事实数据生成** | - | **Day3** | - | - | - | **❌ P0** |
+| **E1** | **4B** | **Day3** | - | - | - | **❌ P0** |
+| **E2** | **4B** | **Day3-4** | - | - | - | **❌ P0** |
+| **E3** | **4B** | **Day3-4** | - | - | - | **❌ P0** |
+| **E7** | **4B** | **Day4** | - | - | - | **❌ P0** |
+| E4-SFT+eval | 0.6B/1.7B/Min/Gem | Day3-4 | - | - | - | ❌ |
+| E4-eval | 8B MMLU | Day3 | - | - | - | ❌ |
+| E5 | 4B | Day5 | - | - | - | ❌ |
+| E6 | 4B | Day5 | - | - | - | ❌ |
+| 论文写作 | - | Day5-7 | - | - | - | ❌ |
 
 ---
 
 ## 七、Go/No-Go检查点
 
-### Day 3 检查点（E1首批结果）
+### ⚑ Day 3 中午: E1 结果
 
 | 结果 | 行动 |
 |------|------|
-| ≥4/6模型在News+至少1个OOD数据集上有效 | ✅ 继续 |
-| 部分模型提升弱 | ⚠️ 分析原因，继续其他模型 |
-| 所有模型都不work | ❌ 紧急debug adapter设计/训练策略 |
+| Oracle >> Topic-Matched ≥ Empty (Oracle-Empty≥10pp) | ✅ C4成立，继续E2 |
+| Oracle > Empty 但 Topic-Matched也接近Oracle | ⚠️ adapter不区分对错，需分析 |
+| Oracle ≈ Empty | ❌ adapter未使用知识。**停止。** |
 
-### Day 4 检查点（E1全部结果 + OOD泛化）
+### ⚑ Day 4 上午: E2 结果
 
 | 结果 | 行动 |
 |------|------|
-| OOD数据集（MedQA/ARC/MMLU）也有提升 | ✅ 强故事线，正常提交 |
-| OOD效果弱但in-domain好 | ⚠️ 论文聚焦in-domain；OOD作为discussion |
-| 全面不work | ❌ 评估是否换venue |
+| TM-Counter KC >> RAG-Counter KC (≥15pp) + High-Prior差距 > Low-Prior差距 | ✅ **核心成立！** |
+| TM-Counter KC > RAG-Counter KC 但差距小 或 无分层效应 | ⚠️ 效果弱或机制不清 |
+| TM-Counter KC ≈ RAG-Counter KC | ❌ faithfulness不成立，降级EMNLP |
+| E3 Strong-prompt 抹平差距 | ⚠️ 训练效应非架构效应 |
+
+### Day 4 晚: 综合评估
+
+| 组合 | 走向 |
+|------|------|
+| E1✅ + E2✅(含分层) + E4多模型✅ + E7效率数据 | **NeurIPS 全力冲刺** |
+| E1✅ + E2✅ + E4部分 | **NeurIPS 可投但弱** |
+| E1✅ + E2⚠️ | **EMNLP** |
+| E1❌ | **重大危机** |

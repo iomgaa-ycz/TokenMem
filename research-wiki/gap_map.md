@@ -1,63 +1,63 @@
-# Gap Map
+# Gap Map (v3修订)
 
 研究空白地图，按重要性排序。
 
 ---
 
-## G1: 多模型通用性验证
+## G1: 知识冲突下的注入忠实性 (v3新增)
 
-**状态**: 未解决
-**重要性**: 🔴 核心
+**状态**: 🔴 核心 — 未解决
+**重要性**: 🔴 论文命脉
 
-现有LLM记忆系统最多在3个模型上验证（KBLaM: Llama-3-8B, Llama-3.2-1B, Phi-3-mini）。没有任何系统在6+模型、3+模型家族上证明通用性。
+没有人比较过cross-attention注入vs in-context注入（RAG）在知识与参数记忆冲突条件下的Knowledge Compliance差异。知识冲突文献（Longpre 2021, Xie 2024）研究了LLM在冲突下的行为，但未探索cross-attention作为替代注入通道的可能性。
 
-**相关工作**: paper:kblam2025 (3模型), paper:memoryllm2024 (1模型), paper:explicitlm2025 (1模型)
-**目标方案**: idea:001 (TokenMem, 6模型×3家族)
-
----
-
-## G2: 冻结LLM即插即用记忆
-
-**状态**: 未解决
-**重要性**: 🔴 核心
-
-ExplicitLM证明token记忆有效（+43.67%），但需从零预训练。没有人做过"给现有冻结LLM加token级记忆，只需轻量SFT"。DecoupledRAG实现了冻结LLM+cross-attention注入，但没有持久记忆bank。
-
-**相关工作**: paper:explicitlm2025 (需预训练), paper:decoupledrag2025 (无持久记忆)
-**目标方案**: idea:001 (TokenMem)
+**相关工作**: Longpre 2021 (knowledge conflicts), Xie 2024, DecoupledRAG (mechanism), KBLaM
+**目标方案**: idea:001 (TokenMem, C1 faithful injection)
 
 ---
 
-## G3: 完整记忆pipeline（检索→融合→更新）
+## G2: 多模型通用性验证
 
 **状态**: 未解决
 **重要性**: 🟡 重要
 
-现有工作只覆盖pipeline的1-2个阶段：DecoupledRAG做融合不做检索/更新；KBLaM做融合+有限更新不做检索；FwPKM做检索+更新不做显式融合。没有系统实现完整的知识生命周期管理。
+现有LLM记忆系统最多在3个模型上验证（KBLaM）。没有任何系统在6+模型、3+模型家族上证明通用性。
 
-**相关工作**: paper:decoupledrag2025, paper:kblam2025, paper:fwpkm2026
+**相关工作**: paper:kblam2025 (3模型), paper:memoryllm2024 (1模型), paper:decoupledrag2025 (1模型)
+**目标方案**: idea:001 (TokenMem, C3)
+
+---
+
+## G3: 冻结LLM即插即用记忆
+
+**状态**: 部分解决（系统已实现，效果待验证完整）
+**重要性**: 🟡 重要
+
+ExplicitLM证明token记忆有效但需预训练。DecoupledRAG实现了冻结LLM+cross-attention注入但无持久记忆bank。
+
+**相关工作**: paper:explicitlm2025, paper:decoupledrag2025
 **目标方案**: idea:001 (TokenMem)
 
 ---
 
-## G4: 动态知识管理（无需重训练）
+## G4: 跨领域泛化（一次训练，多领域适用）
 
-**状态**: 未解决
+**状态**: 部分解决（4B/8B有OOD正增益）
 **重要性**: 🟡 重要
 
-ExplicitLM固定容量N=10^6，更新靠EMA（需训练时更新）。KBLaM可替换三元组但需重编码。MemoryLLM自动更新但不可控。没有系统支持运行时知识增/删/编辑且立即生效。
+DecoupledRAG在每个任务上独立SFT。没有系统证明"在一个领域SFT → 在完全不同的领域也有效"。
 
-**相关工作**: paper:explicitlm2025, paper:kblam2025, paper:memoryllm2024
-**目标方案**: idea:001 (TokenMem)
+**相关工作**: paper:decoupledrag2025 (per-task SFT)
+**目标方案**: idea:001 (TokenMem, C2)
 
 ---
 
-## G5: 跨领域泛化（一次训练，多领域适用）
+## G5: 完整记忆pipeline（检索→融合→管理）
 
-**状态**: 未解决
-**重要性**: 🟡 重要
+**状态**: 部分解决（系统已实现）
+**重要性**: 🟢 支撑性
 
-现有记忆系统通常在特定任务上训练和测试（DecoupledRAG在每个任务上独立SFT）。没有系统证明"在一个领域SFT → 在完全不同的领域也有效"。
+注意：GPT-5.4审稿指出RAG+文档库也有完整pipeline能力。此gap不再作为vs RAG的差异化，降为系统完整性的支撑性贡献。
 
-**相关工作**: paper:decoupledrag2025 (每任务独立SFT)
-**目标方案**: idea:001 (TokenMem, News训练→MedQA/ARC/MMLU测试)
+**相关工作**: paper:decoupledrag2025, paper:kblam2025
+**目标方案**: idea:001 (TokenMem)

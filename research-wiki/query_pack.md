@@ -1,6 +1,6 @@
 # Query Pack (auto-generated, max 8000 chars)
 
-**Last updated**: 2026-04-26
+**Last updated**: 2026-04-28
 
 ## Project Direction (300 chars)
 TokenMem: 面向冻结LLM的即插即用记忆pipeline。检索(FAISS)→融合(Cross-Attention,借鉴DecoupledRAG)→更新(token编辑)。6模型×3家族验证。News 50K SFT→MedQA/ARC/MMLU跨域泛化。ExplicitLM(ICLR26,本组)后继。
@@ -40,8 +40,16 @@ DecoupledRAG(无持久记忆) →limitation→ TokenMem(持久bank+编辑) →ad
 KBLaM(3模型) →limitation→ TokenMem(6模型) →addresses→ G1
 DecoupledRAG(每任务独立SFT) →limitation→ TokenMem(一次SFT跨域) →addresses→ G5
 
+## E1 Baseline Results (新增)
+exp:E1_baseline ✅ 6模型×3 OOD×2方法=36 JSON完成
+No-Memory: qwen3系列33-65%(越大越好), ministral-3b 61-86%, gemma3-1b ~25%(失效)
+VanillaRAG Oracle: 5/6模型达90-99%, gemma3-1b仍~25%
+⚠️ gemma3-1b loglikelihood评测失效 → C1"≥5/6模型"阈值风险
+⚠️ VanillaRAG天花板95-99% → C4"TokenMem>VanillaRAG"压力极大
+
 ## Open Unknowns (500 chars)
-- OOD泛化效果(News训练→MedQA/ARC/MMLU)到底有多少？→ E1验证
-- 大模型(8B)的adapter是否和小模型同样有效？→ E1验证
+- ~~OOD泛化效果到底有多少？~~ → baseline已建立，等TokenMem结果
+- gemma3-1b为何失效？tokenizer问题还是模型能力不足？→ 需分析
+- C4如何重新定义？token开销优势 vs 纯accuracy？→ 需讨论
 - 知识编辑的cascade效应如何？→ E2验证(简化版)
 - 论文命名是否需要避开TokMem？→ 待决定

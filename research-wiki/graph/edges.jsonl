@@ -15,3 +15,12 @@
 {"from": "paper:tokmem2025", "to": "paper:memoryllm2024", "type": "extends", "evidence": "TokMem将过程编译为单个memory token，与MemoryLLM的隐式记忆思路不同但互补"}
 {"from": "idea:002", "to": "gap:G1", "type": "addresses_gap", "evidence": "MemoryBridge纯跨模型方案"}
 {"from": "idea:003", "to": "gap:G4", "type": "addresses_gap", "evidence": "EditMem纯编辑方案"}
+{"from": "exp:E1_baseline", "to": "claim:C1", "type": "tested_by", "evidence": "E1 baseline建立6模型No-Memory/VanillaRAG对照，发现gemma3-1b在loglikelihood评测下基本失效(~25%)"}
+{"from": "exp:E1_baseline", "to": "claim:C2", "type": "tested_by", "evidence": "E1 baseline在MedQA/ARC/MMLU上建立对照数据，等待TokenMem结果对比"}
+{"from": "exp:E1_baseline", "to": "claim:C4", "type": "tested_by", "evidence": "VanillaRAG Oracle天花板95-99%(3B+模型)，对C4形成高压力"}
+{"from": "idea:001", "to": "exp:E1_baseline", "type": "tested_by", "evidence": "E1 baseline是TokenMem idea的对照实验基础"}
+{"from": "idea:001", "to": "exp:E0_news_dataset", "type": "tested_by", "evidence": "TokenMem SFT训练数据集: 58,663 MCQ from 25 English news sources, 50K train + 8.6K val (time-split)"}
+{"from": "exp:E1_tokenmem", "to": "claim:C1", "type": "supports", "evidence": "4B和8B在所有已测数据集(7/7)上均超越No-Memory，4B: +4.3~+37.3pp, 8B: +4.1~+32.5pp"}
+{"from": "exp:E1_tokenmem", "to": "claim:C2", "type": "supports", "evidence": "4B在3/3 OOD数据集上提升>4pp(MedQA+14pp,ARC+4.3pp,MMLU+8.4pp); 8B在2/2已测OOD上提升>4pp"}
+{"from": "exp:E1_tokenmem", "to": "claim:C4", "type": "invalidates", "evidence": "TokenMem未超越VanillaRAG准确率(Recovery Rate 29-74%)，C4需调整为token效率优势"}
+{"from": "idea:001", "to": "exp:E1_tokenmem", "type": "tested_by", "evidence": "E1 TokenMem: 4B/8B SFT后Oracle评测，验证cross-attention知识注入有效性"}
