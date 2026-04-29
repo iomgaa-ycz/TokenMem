@@ -35,12 +35,12 @@ python -m accelerate.commands.launch \
     --epochs              5 \
     --batch-size          32 \
     --lr                  1e-3 \
-    --weight-decay        0.01 \
-    --grad-clip           1.0 \
+    --weight-decay        0.0 \
+    --grad-clip           0.0 \
     --grad-accum-steps    1 \
     --max-seq-len         64 \
     --knowledge-max-len   256 \
-    --knowledge-strided-len 256 \
+    --knowledge-strided-len 64 \
     --save-steps          500 \
     --eval-steps          500 \
     --num-workers         4 \
