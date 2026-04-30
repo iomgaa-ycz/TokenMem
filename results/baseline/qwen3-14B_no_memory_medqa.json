@@ -1,0 +1,19 @@
+{
+  "model": "qwen3-14B",
+  "model_path": "hugglingface_model/qwen3-14B",
+  "method": "no_memory",
+  "dataset": "medqa",
+  "scoring": "cot_nothink",
+  "compress_target_token": null,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 2,
+  "n_samples": 1273,
+  "accuracy": 0.7659,
+  "correct": 975,
+  "extract_success": 1267,
+  "extract_success_rate": 0.9953,
+  "avg_gen_length": 632.1,
+  "latency_ms_mean": 13244.54,
+  "timestamp": "2026-04-29T20:31:37.904965+00:00",
+  "git_sha": "1aa6cc7"
+}
