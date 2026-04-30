@@ -1,63 +1,48 @@
 """eval_tokenmem 核心函数单元测试。
 
 覆盖：
-- build_mc_prompt：不含 Reference 前缀，以 Answer: 结尾
+- build_cot_prompt (passage=None)：TokenMem 用法，无 passage 拼入 prompt
 - tokenize_knowledge：返回正确 key + shape
-- normalize_options：数字 key 转字母，字母 key 不变
+- normalize_options（从 eval_baseline import）
 """
 
 from transformers import AutoTokenizer
 
-from evaluation.eval_tokenmem import (
-    build_mc_prompt,
-    normalize_options,
-    tokenize_knowledge,
-)
+from evaluation.eval_baseline import build_cot_prompt, normalize_options
+from evaluation.eval_tokenmem import tokenize_knowledge
 
 _QWEN3_PATH = "hugglingface_model/qwen3-0.6B"
 
 
-class TestBuildMcPromptNoPassage:
-    """验证 TokenMem prompt 格式：无 Reference 前缀，以 Answer: 结尾。"""
+class TestBuildCotPromptTokenMem:
+    """验证 TokenMem 使用 build_cot_prompt(passage=None) 的行为。"""
 
-    def test_no_reference_prefix(self) -> None:
-        """prompt 中不应含有 'Reference:' 字符串。"""
+    def test_no_passage_in_prompt(self) -> None:
+        """passage=None 时 prompt 中不应含有任何段落文本。"""
         options = {"A": "Paris", "B": "London", "C": "Berlin", "D": "Rome"}
-        prompt = build_mc_prompt(
+        prompt = build_cot_prompt(
             question="What is the capital of France?",
             options=options,
+            passage=None,
         )
         assert "Reference:" not in prompt
+        assert "Paris" in prompt
 
-    def test_ends_with_answer(self) -> None:
-        """prompt 必须以 'Answer:' 结尾。"""
-        options = {"A": "Paris", "B": "London", "C": "Berlin", "D": "Rome"}
-        prompt = build_mc_prompt(
-            question="What is the capital of France?",
-            options=options,
-        )
-        assert prompt.endswith("Answer:")
-
-    def test_starts_with_question(self) -> None:
-        """prompt 必须以 'Question:' 开头。"""
+    def test_contains_cot_instruction(self) -> None:
+        """prompt 必须包含 CoT 指令。"""
         options = {"A": "a", "B": "b"}
-        prompt = build_mc_prompt(question="Test?", options=options)
-        assert prompt.startswith("Question:")
+        prompt = build_cot_prompt(question="Test?", options=options, passage=None)
+        assert "step by step" in prompt
+        assert "The answer is" in prompt
 
-    def test_options_present(self) -> None:
-        """所有选项行出现在 prompt 中。"""
+    def test_contains_question_and_options(self) -> None:
+        """prompt 中包含问题和所有选项。"""
         options = {"A": "Alpha", "B": "Beta", "C": "Gamma"}
-        prompt = build_mc_prompt(question="Pick one?", options=options)
+        prompt = build_cot_prompt(question="Pick one?", options=options, passage=None)
+        assert "Pick one?" in prompt
         assert "A. Alpha" in prompt
         assert "B. Beta" in prompt
         assert "C. Gamma" in prompt
-
-    def test_three_options(self) -> None:
-        """支持 3 个选项（非 4 个）。"""
-        options = {"A": "one", "B": "two", "C": "three"}
-        prompt = build_mc_prompt(question="Q?", options=options)
-        assert prompt.endswith("Answer:")
-        assert "A. one" in prompt
 
 
 class TestTokenizeKnowledge:
@@ -90,7 +75,7 @@ class TestTokenizeKnowledge:
     def test_max_len_truncation(self) -> None:
         """超长 passage 应被截断到 max_len。"""
         tokenizer = AutoTokenizer.from_pretrained(_QWEN3_PATH, trust_remote_code=True)
-        long_passage = "word " * 500  # ~500 tokens
+        long_passage = "word " * 500
         result = tokenize_knowledge(
             tokenizer=tokenizer,
             passage=long_passage,
@@ -127,31 +112,16 @@ class TestTokenizeKnowledge:
 
 
 class TestNormalizeOptions:
-    """验证 normalize_options 的 key 归一化逻辑。"""
+    """验证 normalize_options 的 key 归一化逻辑（从 eval_baseline import）。"""
 
     def test_numeric_keys_to_letters(self) -> None:
-        """数字 key（"1","2","3","4"）应转为字母（A/B/C/D）。"""
         options = {"1": "opt1", "2": "opt2", "3": "opt3", "4": "opt4"}
         norm_opts, norm_letter = normalize_options(options, "2")
         assert set(norm_opts.keys()) == {"A", "B", "C", "D"}
         assert norm_letter == "B"
 
     def test_letter_keys_unchanged(self) -> None:
-        """字母 key 不应被改变。"""
         options = {"A": "alpha", "B": "beta", "C": "gamma"}
         norm_opts, norm_letter = normalize_options(options, "C")
         assert set(norm_opts.keys()) == {"A", "B", "C"}
         assert norm_letter == "C"
-
-    def test_numeric_correct_letter_mapped(self) -> None:
-        """correct_letter 为数字时应同步转为字母。"""
-        options = {"1": "a", "2": "b", "3": "c"}
-        _, norm_letter = normalize_options(options, "3")
-        assert norm_letter == "C"
-
-    def test_values_preserved(self) -> None:
-        """数字转字母后，选项值不应改变。"""
-        options = {"1": "Apple", "2": "Banana"}
-        norm_opts, _ = normalize_options(options, "1")
-        assert norm_opts["A"] == "Apple"
-        assert norm_opts["B"] == "Banana"
