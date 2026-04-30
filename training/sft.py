@@ -172,6 +172,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="反事实验证集 JSONL 路径（可传多个，用于分开追踪 CF val_loss）",
     )
+    p.add_argument(
+        "--prompt-mode",
+        type=str,
+        default="direct",
+        choices=["direct", "cot"],
+        help="训练 prompt 模式: direct='Answer:' 单字母, cot=CoT 完整推理 (默认: direct)",
+    )
     p.add_argument("--seed", type=int, default=42, help="随机种子 (默认: 42)")
 
     return p.parse_args()
@@ -482,12 +489,13 @@ def train(args: argparse.Namespace) -> None:
     train_dataset = NewsQAOracleDataset(
         jsonl_path=args.train_jsonl,
         knowledge_field=args.knowledge_field,
+        prompt_mode=args.prompt_mode,
     )
 
     if args.cf_train_jsonl:
         cf_datasets = []
         for cf_path in args.cf_train_jsonl:
-            cf_ds = CounterfactualDataset(cf_path, split="train")
+            cf_ds = CounterfactualDataset(cf_path, split="train", prompt_mode=args.prompt_mode)
             if args.cf_oversample > 1:
                 cf_ds = OversampledDataset(cf_ds, factor=args.cf_oversample)
             cf_datasets.append(cf_ds)
@@ -508,6 +516,7 @@ def train(args: argparse.Namespace) -> None:
     val_dataset = NewsQAOracleDataset(
         jsonl_path=args.val_jsonl,
         knowledge_field=args.knowledge_field,
+        prompt_mode=args.prompt_mode,
     )
 
     collate_fn = make_collate_fn(
@@ -539,7 +548,7 @@ def train(args: argparse.Namespace) -> None:
     if args.cf_val_jsonl:
         cf_val_datasets = []
         for cf_val_path in args.cf_val_jsonl:
-            cf_val_ds = CounterfactualDataset(cf_val_path, split="test")
+            cf_val_ds = CounterfactualDataset(cf_val_path, split="test", prompt_mode=args.prompt_mode)
             cf_val_datasets.append(cf_val_ds)
 
         cf_val_dataset = ConcatDataset(cf_val_datasets)
