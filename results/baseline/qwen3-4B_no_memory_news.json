@@ -3,10 +3,17 @@
   "model_path": "hugglingface_model/qwen3-4B",
   "method": "no_memory",
   "dataset": "news",
+  "scoring": "cot_nothink",
+  "compress_target_token": null,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 8,
   "n_samples": 8663,
-  "accuracy": 0.4754,
-  "correct": 4118,
-  "latency_ms_mean": 87.14,
-  "timestamp": "2026-04-28T03:17:57.978089+00:00",
-  "git_sha": "3c7e2e5"
+  "accuracy": 0.439,
+  "correct": 3803,
+  "extract_success": 8397,
+  "extract_success_rate": 0.9693,
+  "avg_gen_length": 321.1,
+  "latency_ms_mean": 1047.05,
+  "timestamp": "2026-04-30T00:32:44.645713+00:00",
+  "git_sha": "1aa6cc7"
 }
