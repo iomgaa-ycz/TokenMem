@@ -278,7 +278,7 @@ def _load_done_ids(path: str, id_field: str) -> set:
 
 
 async def run(args: argparse.Namespace) -> None:
-    """异步主流程：加载 → 过滤 → 并发生成 → 写入。"""
+    """生成模式：加载 → 过滤已完成 → 并发生成 → 逐条写入。"""
     from openai import AsyncOpenAI
     from tqdm.asyncio import tqdm_asyncio
 
@@ -296,24 +296,28 @@ async def run(args: argparse.Namespace) -> None:
         return
 
     semaphore = asyncio.Semaphore(args.concurrency)
-    tasks = [
-        generate_one(client, row, args.data_type, semaphore, args.model)
-        for row in remaining
-    ]
-    results = await tqdm_asyncio.gather(*tasks, desc="Generating CoT")
+    write_lock = asyncio.Lock()
+    stats = {"valid": 0, "total": 0}
 
-    valid = 0
-    total = 0
-    with open(args.output, "a", encoding="utf-8") as f:
-        for r in results:
-            if r is None:
-                continue
-            total += 1
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-            if r.get("cot_valid"):
-                valid += 1
+    async def _generate_and_write(row: Dict[str, Any]) -> None:
+        """生成单条 CoT 并立即写入文件。"""
+        result = await generate_one(client, row, args.data_type, semaphore, args.model)
+        async with write_lock:
+            with open(args.output, "a", encoding="utf-8") as f:
+                f.write(json.dumps(result, ensure_ascii=False) + "\n")
+            stats["total"] += 1
+            if result.get("cot_valid"):
+                stats["valid"] += 1
 
-    logger.info("完成: %d 条, 有效: %d (%.1f%%)", total, valid, valid / max(total, 1) * 100)
+    tasks = [_generate_and_write(row) for row in remaining]
+    await tqdm_asyncio.gather(*tasks, desc="Generating CoT")
+
+    logger.info(
+        "完成: %d 条, 有效: %d (%.1f%%)",
+        stats["total"],
+        stats["valid"],
+        stats["valid"] / max(stats["total"], 1) * 100,
+    )
 
 
 # ---------------------------------------------------------------------------
