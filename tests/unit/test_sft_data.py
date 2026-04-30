@@ -368,3 +368,146 @@ class TestOversampledDataset:
         oversampled = OversampledDataset(ds, factor=2)
         item = oversampled[0]
         assert set(item.keys()) == {"prompt", "answer", "knowledge_text"}
+
+
+# ---------------------------------------------------------------------------
+# CoT 模式测试
+# ---------------------------------------------------------------------------
+
+MOCK_COT_DATA: List[dict] = [
+    {
+        "question": "What color is the sky?",
+        "passage": "The sky appears blue due to Rayleigh scattering of sunlight.",
+        "correct_answer": "Blue",
+        "correct_letter": "B",
+        "options": {"A": "Red", "B": "Blue", "C": "Green", "D": "Yellow"},
+        "cot_response": "The passage states the sky is blue due to Rayleigh scattering. The answer is B",
+        "cot_extracted_letter": "B",
+        "cot_valid": True,
+    },
+    {
+        "question": "What is 2+2?",
+        "passage": "Basic arithmetic: two plus two equals four.",
+        "correct_answer": "4",
+        "correct_letter": "C",
+        "options": {"A": "3", "B": "5", "C": "4", "D": "6"},
+        "cot_response": "Two plus two is four. The answer is C",
+        "cot_extracted_letter": "C",
+        "cot_valid": True,
+    },
+    {
+        "question": "Which planet?",
+        "passage": "Mercury orbits closest.",
+        "correct_answer": "Mercury",
+        "correct_letter": "A",
+        "options": {"A": "Mercury", "B": "Venus", "C": "Earth", "D": "Mars"},
+        "cot_response": "I think Venus. The answer is B",
+        "cot_extracted_letter": "B",
+        "cot_valid": False,
+    },
+]
+
+MOCK_CF_COT_DATA: List[dict] = [
+    {
+        "cf_id": "arc_00_cf_A",
+        "source_id": "arc_00",
+        "dataset": "arc_easy",
+        "question": "What color is the sky?",
+        "options": {"A": "Red", "B": "Blue", "C": "Green", "D": "Yellow"},
+        "correct_letter": "B",
+        "passage": "The sky appears blue.",
+        "target_letter": "A",
+        "target_answer": "Red",
+        "counterfactual_passage": "The sky appears red due to iron oxide.",
+        "split": "train",
+        "cot_response": "According to the passage, the sky is red. The answer is A",
+        "cot_extracted_letter": "A",
+        "cot_valid": True,
+    },
+]
+
+
+class TestNewsQACoTMode:
+    """NewsQAOracleDataset CoT 模式测试。"""
+
+    def test_cot_prompt_format(self, tmp_path: Path):
+        jsonl = tmp_path / "cot.jsonl"
+        jsonl.write_text(
+            "\n".join(json.dumps(r) for r in MOCK_COT_DATA), encoding="utf-8"
+        )
+        ds = NewsQAOracleDataset(jsonl, prompt_mode="cot")
+        item = ds[0]
+        assert "Let's think step by step" in item["prompt"]
+        assert 'The answer is X' in item["prompt"]
+        assert "Answer:" not in item["prompt"]
+
+    def test_cot_answer_is_full_response(self, tmp_path: Path):
+        jsonl = tmp_path / "cot.jsonl"
+        jsonl.write_text(
+            "\n".join(json.dumps(r) for r in MOCK_COT_DATA), encoding="utf-8"
+        )
+        ds = NewsQAOracleDataset(jsonl, prompt_mode="cot")
+        item = ds[0]
+        assert item["answer"] == MOCK_COT_DATA[0]["cot_response"]
+        assert len(item["answer"]) > 10
+
+    def test_cot_filters_invalid(self, tmp_path: Path):
+        jsonl = tmp_path / "cot.jsonl"
+        jsonl.write_text(
+            "\n".join(json.dumps(r) for r in MOCK_COT_DATA), encoding="utf-8"
+        )
+        ds = NewsQAOracleDataset(jsonl, prompt_mode="cot")
+        assert len(ds) == 2
+
+    def test_direct_mode_unchanged(self, tmp_path: Path):
+        jsonl = tmp_path / "cot.jsonl"
+        jsonl.write_text(
+            "\n".join(json.dumps(r) for r in MOCK_COT_DATA), encoding="utf-8"
+        )
+        ds = NewsQAOracleDataset(jsonl, prompt_mode="direct")
+        item = ds[0]
+        assert "Answer:" in item["prompt"]
+        assert item["answer"] == "B"
+        assert len(ds) == 3
+
+
+class TestCFCoTMode:
+    """CounterfactualDataset CoT 模式测试。"""
+
+    def test_cot_prompt_format(self, tmp_path: Path):
+        jsonl = tmp_path / "cf_cot.jsonl"
+        jsonl.write_text(json.dumps(MOCK_CF_COT_DATA[0]), encoding="utf-8")
+        ds = CounterfactualDataset(jsonl, split="train", prompt_mode="cot")
+        item = ds[0]
+        assert "Let's think step by step" in item["prompt"]
+        assert "Answer:" not in item["prompt"]
+
+    def test_cot_answer_is_full_response(self, tmp_path: Path):
+        jsonl = tmp_path / "cf_cot.jsonl"
+        jsonl.write_text(json.dumps(MOCK_CF_COT_DATA[0]), encoding="utf-8")
+        ds = CounterfactualDataset(jsonl, split="train", prompt_mode="cot")
+        item = ds[0]
+        assert item["answer"] == MOCK_CF_COT_DATA[0]["cot_response"]
+
+    def test_knowledge_text_is_cf_passage(self, tmp_path: Path):
+        jsonl = tmp_path / "cf_cot.jsonl"
+        jsonl.write_text(json.dumps(MOCK_CF_COT_DATA[0]), encoding="utf-8")
+        ds = CounterfactualDataset(jsonl, split="train", prompt_mode="cot")
+        item = ds[0]
+        assert item["knowledge_text"] == MOCK_CF_COT_DATA[0]["counterfactual_passage"]
+
+
+class TestCollateWithCoT:
+    """collate_fn 处理多 token answer 的测试。"""
+
+    def test_labels_mask_prompt_only(self, tmp_path: Path, tokenizer):
+        jsonl = tmp_path / "cot.jsonl"
+        jsonl.write_text(
+            "\n".join(json.dumps(r) for r in MOCK_COT_DATA[:2]), encoding="utf-8"
+        )
+        ds = NewsQAOracleDataset(jsonl, prompt_mode="cot")
+        collate = make_collate_fn(tokenizer, max_seq_len=256, knowledge_max_len=64)
+        batch = collate([ds[0], ds[1]])
+        labels = batch["labels"]
+        non_masked = (labels != -100).sum().item()
+        assert non_masked > 5

@@ -23,23 +23,25 @@ logger = logging.getLogger(__name__)
 class NewsQAOracleDataset(Dataset):
     """从 JSONL 文件加载 NewsQA 多选题数据集。
 
-    每行 JSON 需包含: question, passage, options (dict A/B/C/D),
-    correct_letter, correct_answer。
-
-    __getitem__ 返回原始文本字典:
-        {"prompt": str, "answer": str, "knowledge_text": str}
+    支持两种 prompt 模式:
+    - "direct": 原始 "Answer:" 格式，target 为单字母 (默认)
+    - "cot": CoT 格式，target 为完整 cot_response，自动过滤 cot_valid=False
 
     参数:
         jsonl_path: JSONL 文件路径。
         knowledge_field: 用作 knowledge_text 的字段名，默认 "passage"。
+        prompt_mode: "direct" 或 "cot"，默认 "direct"。
     """
 
     def __init__(
         self,
         jsonl_path: Union[str, Path],
         knowledge_field: str = "passage",
+        prompt_mode: str = "direct",
     ) -> None:
+        assert prompt_mode in ("direct", "cot"), f"prompt_mode 必须为 direct 或 cot, 收到 {prompt_mode}"
         self.knowledge_field = knowledge_field
+        self.prompt_mode = prompt_mode
         self.rows: List[Dict[str, Any]] = []
 
         path = Path(jsonl_path)
@@ -55,29 +57,49 @@ class NewsQAOracleDataset(Dataset):
                     continue
                 self.rows.append(row)
 
-        logger.info("加载 %d 条样本 from %s", len(self.rows), path.name)
-
-    # ------------------------------------------------------------------
+        if self.prompt_mode == "cot":
+            before = len(self.rows)
+            self.rows = [r for r in self.rows if r.get("cot_valid", False)]
+            logger.info(
+                "CoT 过滤: %d → %d 有效样本 from %s",
+                before, len(self.rows), path.name,
+            )
+        else:
+            logger.info("加载 %d 条样本 from %s", len(self.rows), path.name)
 
     def __len__(self) -> int:
         return len(self.rows)
 
     def __getitem__(self, idx: int) -> Dict[str, str]:
         row = self.rows[idx]
-
         options = row["options"]
-        prompt = (
-            f"Question: {row['question']}\n"
-            f"A. {options['A']}\n"
-            f"B. {options['B']}\n"
-            f"C. {options['C']}\n"
-            f"D. {options['D']}\n"
-            f"Answer:"
-        )
+
+        if self.prompt_mode == "cot":
+            labels = sorted(options.keys())
+            option_lines = "\n".join(f"{lb}. {options[lb]}" for lb in labels)
+            label_list = ", ".join(labels[:-1]) + ", or " + labels[-1]
+            prompt = (
+                f"\nQuestion: {row['question']}\n"
+                f"{option_lines}\n"
+                f"\nLet's think step by step, then give the answer.\n"
+                f'You MUST end your response with exactly "The answer is X" '
+                f"where X is {label_list}."
+            )
+            answer = row["cot_response"]
+        else:
+            prompt = (
+                f"Question: {row['question']}\n"
+                f"A. {options['A']}\n"
+                f"B. {options['B']}\n"
+                f"C. {options['C']}\n"
+                f"D. {options['D']}\n"
+                f"Answer:"
+            )
+            answer = row["correct_letter"]
 
         return {
             "prompt": prompt,
-            "answer": row["correct_letter"],
+            "answer": answer,
             "knowledge_text": row[self.knowledge_field],
         }
 
@@ -107,23 +129,24 @@ class OversampledDataset(Dataset):
 class CounterfactualDataset(Dataset):
     """从反事实 JSONL 加载训练数据。
 
-    字段映射:
-      knowledge_text ← counterfactual_passage
-      answer         ← target_letter
-      prompt         ← question + options
-
-    返回格式与 NewsQAOracleDataset 一致，可直接复用 collate_fn。
+    支持两种 prompt 模式:
+    - "direct": "Answer:" 格式，target 为 target_letter (默认)
+    - "cot": CoT 格式，target 为 cot_response，自动过滤 cot_valid=False
 
     参数:
         jsonl_path: 反事实 JSONL 文件路径。
         split: 仅加载指定 split 的行，默认 "train"。
+        prompt_mode: "direct" 或 "cot"，默认 "direct"。
     """
 
     def __init__(
         self,
         jsonl_path: Union[str, Path],
         split: str = "train",
+        prompt_mode: str = "direct",
     ) -> None:
+        assert prompt_mode in ("direct", "cot"), f"prompt_mode 必须为 direct 或 cot, 收到 {prompt_mode}"
+        self.prompt_mode = prompt_mode
         self.rows: List[Dict[str, Any]] = []
 
         path = Path(jsonl_path)
@@ -140,30 +163,47 @@ class CounterfactualDataset(Dataset):
                 if row.get("split") == split:
                     self.rows.append(row)
 
-        logger.info(
-            "加载 %d 条反事实样本 (split=%s) from %s",
-            len(self.rows),
-            split,
-            path.name,
-        )
+        if self.prompt_mode == "cot":
+            before = len(self.rows)
+            self.rows = [r for r in self.rows if r.get("cot_valid", False)]
+            logger.info(
+                "CoT 过滤 (split=%s): %d → %d 有效样本 from %s",
+                split, before, len(self.rows), path.name,
+            )
+        else:
+            logger.info(
+                "加载 %d 条反事实样本 (split=%s) from %s",
+                len(self.rows), split, path.name,
+            )
 
     def __len__(self) -> int:
         return len(self.rows)
 
     def __getitem__(self, idx: int) -> Dict[str, str]:
         row = self.rows[idx]
-
         options = row["options"]
-        sorted_keys = sorted(options.keys())
-        letters = [chr(ord("A") + i) for i in range(len(sorted_keys))]
-        key_to_letter = dict(zip(sorted_keys, letters))
 
-        option_lines = "\n".join(
-            f"{letter}. {options[k]}" for k, letter in zip(sorted_keys, letters)
-        )
-        prompt = f"Question: {row['question']}\n{option_lines}\nAnswer:"
-
-        answer = key_to_letter.get(row["target_letter"], row["target_letter"])
+        if self.prompt_mode == "cot":
+            labels = sorted(options.keys())
+            option_lines = "\n".join(f"{lb}. {options[lb]}" for lb in labels)
+            label_list = ", ".join(labels[:-1]) + ", or " + labels[-1]
+            prompt = (
+                f"\nQuestion: {row['question']}\n"
+                f"{option_lines}\n"
+                f"\nLet's think step by step, then give the answer.\n"
+                f'You MUST end your response with exactly "The answer is X" '
+                f"where X is {label_list}."
+            )
+            answer = row["cot_response"]
+        else:
+            sorted_keys = sorted(options.keys())
+            letters = [chr(ord("A") + i) for i in range(len(sorted_keys))]
+            key_to_letter = dict(zip(sorted_keys, letters))
+            option_lines = "\n".join(
+                f"{letter}. {options[k]}" for k, letter in zip(sorted_keys, letters)
+            )
+            prompt = f"Question: {row['question']}\n{option_lines}\nAnswer:"
+            answer = key_to_letter.get(row["target_letter"], row["target_letter"])
 
         return {
             "prompt": prompt,
