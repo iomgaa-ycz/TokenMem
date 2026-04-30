@@ -28,3 +28,6 @@
 {"from": "exp:E2_pilot_eval_method", "to": "exp:E1_baseline", "type": "extends", "evidence": "E2 pilot在E1 baseline的反事实数据上进行评测方法诊断，发现MCQ格式的根本性局限"}
 {"from": "idea:001", "to": "exp:E2_pilot_eval_method", "type": "tested_by", "evidence": "E2 pilot验证了反事实评测方法，为TokenMem的C1核心实验（知识冲突忠实性）扫清评测方法障碍"}
 {"from": "exp:E2_pilot_eval_method", "to": "gap:G1", "type": "addresses_gap", "evidence": "发现MCQ格式无法有效度量知识冲突忠实性，CoT评测才能暴露cross-attention vs in-context注入的真实差异"}
+{"from": "exp:E2_curriculum_sft", "to": "claim:C1", "type": "supports", "evidence": "Curriculum SFT使模型成功学习CF知识处理(CF val_loss 1.005→0.210)，同时news val_loss改善到0.404(优于旧版0.5)，为C1下游评测提供了有效的checkpoint"}
+{"from": "exp:E2_curriculum_sft", "to": "exp:E1_tokenmem", "type": "extends", "evidence": "E2 curriculum SFT修复了E1 tokenmem训练中的max_seq_len=64截断bug和多数据集梯度冲突问题，产出更优的checkpoint"}
+{"from": "idea:001", "to": "exp:E2_curriculum_sft", "type": "tested_by", "evidence": "Curriculum两阶段SFT验证了TokenMem能同时学习一致性知识增强和知识冲突处理"}

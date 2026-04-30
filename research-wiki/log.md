@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-04-30 — E2 Curriculum SFT 完成（两阶段训练 + max_seq_len 修复）
+
+- **实验**: `exp:E2_curriculum_sft` — 修复多数据集 SFT val_loss 停滞问题
+- **根因诊断**: 4 个问题——MedQA CF 100% 截断(致命)、梯度方向冲突、36层gate累积偏移、验证集盲区
+- **修复措施**: max_seq_len 64→512 + Curriculum两阶段 + 重置optimizer + 分开追踪CF val_loss
+- **Phase 1 (纯news, 3ep)**: val_loss 0.468 (优于旧版 ~0.5)
+- **Phase 2 (news+CF, 5ep)**: news val_loss 0.404 + CF val_loss 0.210
+- **对比失败版**: 直接混合训练 news val_loss 停在 1.0；curriculum 达到 0.404，改善 +0.6
+- **关键发现**: curriculum 策略成功避免梯度冲突，两个 loss 同时下降无此消彼长
+- **显存适配**: batch_size 32→4 + grad_accum 1→8 适配 seq_len=512 (实测 16-42GB/卡 on 4090)
+- **代码改动**: training/sft.py (+79行), scripts/qwen3-4b_sft_phase{1,2}.sh (新增)
+- **运行**: 4090-serve GPU 2+4, Phase 1 ~55min + Phase 2 ~3.5h
+- **best checkpoint**: `checkpoints/qwen3-4b_sft_p2/best` (step=5105, epoch=5)
+- 添加 edges: 3条 (exp:E2_curriculum_sft → C1 supports, → E1_tokenmem extends, idea:001 → exp tested_by)
+
+---
+
 ## 2026-04-29 — E2 评测方案最终确定 + 代码实现
 
 - **决策**: 最终评测方案为 LLMLingua-2 压缩(64tok) + 中性 prompt(无 "Reference:") + CoT + nothink + 1024 tokens

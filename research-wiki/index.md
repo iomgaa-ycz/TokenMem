@@ -3,7 +3,7 @@
 **项目**: TokenMem — 面向冻结LLM的即插即用内部化记忆pipeline
 **目标**: NeurIPS 2026
 **Prior Work**: ExplicitLM (ICLR 2026, 本组)
-**Last Updated**: 2026-04-28 (v3 Faithful Injection Framing)
+**Last Updated**: 2026-04-30 (E2 Curriculum SFT completed)
 
 ---
 
@@ -70,7 +70,7 @@
 
 ---
 
-## Experiments (4)
+## Experiments (5)
 
 | ID | 名称 | 状态 | 关键发现 |
 |----|------|------|---------|
@@ -78,6 +78,7 @@
 | [exp:E1_baseline](experiments/E1_baseline.md) | E1 Baseline (No-Memory + VanillaRAG, 4+2 datasets) | ✅ completed | 68 JSON (48原始+20反事实); VanillaRAG天花板88-99% |
 | [exp:E1_tokenmem](experiments/E1_tokenmem.md) | E1 TokenMem (4B/8B, 4 datasets) | 🔄 in_progress | 7/8已测全部>NM; Recovery 29-74% |
 | [exp:E2_pilot_eval_method](experiments/E2_pilot_eval_method.md) | **E2 Pilot: 评测方法验证** | ✅ completed | **MCQ logprob有天花板(94%); CoT降至28-36%; E2需用CoT评测** |
+| [exp:E2_curriculum_sft](experiments/E2_curriculum_sft.md) | **E2 Curriculum SFT** | ✅ completed | **修复val_loss停滞: news 0.404 + CF 0.210; max_seq_len bug + curriculum策略** |
 
 ---
 

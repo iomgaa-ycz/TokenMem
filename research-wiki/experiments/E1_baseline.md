@@ -13,7 +13,7 @@ status: completed
 
 **目的**: 建立 E1 实验矩阵的两个 baseline（裸模型 + Oracle VanillaRAG），为后续 TokenMem 评测提供对照。
 
-**评测协议**: Loglikelihood scoring (对 " A"/" B"/" C"/" D" 的 continuation log-prob 累加取 argmax)。
+**评测协议**: ~~Loglikelihood scoring~~ → **CoT + nothink 生成评测** (eval pipeline v2, 2026-04-30)。旧 logprob 结果保留作参考，CoT 为主要指标。
 
 **Oracle 知识**: 由 DeepSeek V4 Flash 生成 ~100-200 词百科风格段落（给定 Q + 正确答案）。
 
@@ -105,6 +105,52 @@ arc_easy 为 ARC-Easy 数据集（2376条），与 ARC-Challenge 相比难度更
 | ministral-3b | - | - | `KeyError: 'ministral3'` |
 
 **观察**: 与 ARC-Challenge 趋势一致但天花板更高（no_memory 已达 72-96%）。RAG 提升随模型增大递减（+24pp → +4pp），因为基线已经很高。gemma3-1b 仍然无效。ministral-3b 因 transformers 版本不支持 `ministral3` 架构键而加载失败。
+
+## CoT 评测结果 — Eval Pipeline V2 (2026-04-30)
+
+**评测协议变更**: 从 logprob scoring 全面切换到 CoT + nothink 生成评测。详见 exp:E2_pilot_eval_method。
+- **Prompt**: `apply_chat_template(enable_thinking=False)` 硬关闭 Qwen3 thinking
+- **压缩**: LLMLingua-2 (target_token=64) 仅用于 vanilla_rag
+- **生成**: CoT + greedy, max_new_tokens=2048, batch inference
+- **答案提取**: regex "The answer is X"
+- **输出**: 每条样本的原始生成文本保存在 `.jsonl` 详情文件中
+
+### Qwen3-4B CoT — 标准数据集
+
+| 数据集 | no_memory | vanilla_rag | RAG Gap | avg_gen (rag) |
+|--------|-----------|-------------|---------|---------------|
+| medqa | 0.6559 | 0.8625 | +20.7pp | 780 |
+| arc | 0.9147 | 0.9642 | +5.0pp | 351 |
+| mmlu | 0.7519 | 0.8689 | +11.7pp | 498 |
+| news | 0.4390 | 0.9539 | +51.5pp | 237 |
+| arc_easy | 0.9663 | 0.9907 | +2.4pp | 310 |
+
+### Qwen3-4B CoT — 反事实数据集（C1 核心指标）
+
+| 数据集 | no_memory | vanilla_rag | Gap | n_samples |
+|--------|-----------|-------------|-----|-----------|
+| cf_arc_easy_val | **0.012** | **0.200** | +18.9pp | 2745 |
+| cf_medqa_val | **0.118** | **0.523** | +40.5pp | 1146 |
+
+### CoT vs Logprob 对比 (4B, 反事实)
+
+| 数据集 | 方法 | Logprob (旧) | CoT (新) | 变化 |
+|--------|------|-------------|---------|------|
+| cf_arc_easy_val | vanilla_rag | 80.8% | **20.0%** | -60.8pp |
+| cf_arc_easy_val | no_memory | 2.0% | 1.2% | -0.8pp |
+| cf_medqa_val | vanilla_rag | 93.9% | **52.3%** | -41.6pp |
+| cf_medqa_val | no_memory | 16.0% | 11.8% | -4.2pp |
+
+**关键发现**:
+1. **CoT 成功打破天花板**: vanilla_rag 反事实遵从率从 80-94% (logprob) 降至 20-52% (CoT)，证实 E2 pilot 的结论
+2. **no_memory 基本不变**: 1-16% (logprob) vs 1-12% (CoT)，说明 CoT 不会虚假降低 baseline
+3. **C1 差异化空间充足**: vanilla_rag CoT 遵从率 20-52%，TokenMem 若达 60%+ 即可满足 ≥15pp 要求
+4. **extract_success_rate ~100%**: 结构化 prompt + 2048 token 上限消除了之前的截断问题
+5. **Think 确认关闭**: avg_gen_length 237-853（无一截断到 2048），raw_output 中无 `<think>` 内容
+
+### 8B / 14B CoT — 运行中
+
+8B 和 14B 的 CoT 评测正在远程 4090 服务器上并行运行，预计 8B 当天完成，14B 次日完成。
 
 ## 技术细节
 
