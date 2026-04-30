@@ -320,6 +320,109 @@ async def run(args: argparse.Namespace) -> None:
     )
 
 
+async def run_retry(args: argparse.Namespace) -> None:
+    """重试模式：读取已有输出中 cot_valid=False 的行，用 temperature>0 重试。
+
+    流程：
+    1. 读取输出文件所有行，按索引组织
+    2. 筛选 cot_valid=False 的行
+    3. 对每行用 temperature=0.7 重试最多 max_retries 次
+    4. 成功则更新该行，最后重写整个文件
+
+    参数:
+        args: CLI 参数，需含 output / api_key / base_url / model /
+              concurrency / data_type / max_retries。
+    """
+    from openai import AsyncOpenAI
+    from tqdm.asyncio import tqdm_asyncio
+
+    client = AsyncOpenAI(api_key=args.api_key, base_url=args.base_url)
+    id_field = "cf_id" if args.data_type == "cf" else "id"
+    max_retries = getattr(args, "max_retries", 3)
+
+    # 读取输出文件
+    all_rows: List[Dict[str, Any]] = []
+    with open(args.output, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            all_rows.append(json.loads(line))
+
+    # 找失败行及其在 all_rows 中的索引
+    failed: List[tuple[int, Dict[str, Any]]] = [
+        (i, row) for i, row in enumerate(all_rows) if not row.get("cot_valid", False)
+    ]
+
+    logger.info("总行数: %d, 待重试: %d", len(all_rows), len(failed))
+    if not failed:
+        logger.info("无需重试，全部有效")
+        return
+
+    semaphore = asyncio.Semaphore(args.concurrency)
+    fixed = 0
+
+    async def _retry_one(idx: int, row: Dict[str, Any]) -> None:
+        """对单条失败样本重试，成功则原地更新 all_rows。"""
+        nonlocal fixed
+
+        if args.data_type == "news":
+            passage = row["passage"]
+            expected = row["correct_letter"]
+        else:
+            passage = row["counterfactual_passage"]
+            expected = row["target_letter"]
+
+        training_prompt = _build_training_prompt(row)
+        user = build_user_prompt(passage, row)
+
+        for attempt in range(max_retries):
+            async with semaphore:
+                try:
+                    resp = await client.chat.completions.create(
+                        model=args.model,
+                        messages=[
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": user},
+                        ],
+                        max_tokens=800,
+                        temperature=0.7,
+                        extra_body={"thinking": {"type": "disabled"}},
+                    )
+                    text = resp.choices[0].message.content.strip()
+                except Exception as e:
+                    logger.warning("重试 API 失败: %s", e)
+                    await asyncio.sleep(2**attempt)
+                    continue
+
+            letter = extract_cot_answer(text)
+            est_tokens = _estimate_training_tokens(training_prompt, text)
+
+            if letter == expected and est_tokens <= MAX_TRAINING_TOKENS:
+                all_rows[idx]["cot_response"] = text
+                all_rows[idx]["cot_extracted_letter"] = letter
+                all_rows[idx]["cot_valid"] = True
+                fixed += 1
+                return
+
+    tasks = [_retry_one(idx, row) for idx, row in failed]
+    await tqdm_asyncio.gather(*tasks, desc="Retrying failed")
+
+    # 重写整个文件
+    with open(args.output, "w", encoding="utf-8") as f:
+        for row in all_rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    still_invalid = sum(1 for r in all_rows if not r.get("cot_valid", False))
+    logger.info(
+        "重试完成: 修复 %d / %d, 剩余无效 %d (%.2f%%)",
+        fixed,
+        len(failed),
+        still_invalid,
+        still_invalid / len(all_rows) * 100,
+    )
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -341,6 +444,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--model", default=None, help="模型名 (默认: 读 .env)")
     p.add_argument("--api-key", default=None, help="API key (默认: 读 .env)")
     p.add_argument("--base-url", default=None, help="API base URL (默认: 读 .env)")
+    p.add_argument(
+        "--mode",
+        choices=["generate", "retry"],
+        default="generate",
+        help="运行模式: generate=生成新数据, retry=重试失败样本 (默认: generate)",
+    )
+    p.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="retry 模式下每条失败样本最多重试次数 (默认: 3)",
+    )
     return p.parse_args()
 
 
@@ -364,7 +479,11 @@ def main() -> None:
 
     assert args.api_key, "需要 API key: --api-key 或 .env DEEPSEEK_LLM_API_KEY"
 
-    asyncio.run(run(args))
+    if args.mode == "retry":
+        assert Path(args.output).exists(), f"retry 模式需要已有输出文件: {args.output}"
+        asyncio.run(run_retry(args))
+    else:
+        asyncio.run(run(args))
 
 
 if __name__ == "__main__":
