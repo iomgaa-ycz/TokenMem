@@ -84,3 +84,225 @@ def extract_cot_answer(text: str) -> Optional[str]:
         for m in re.finditer(p, text):
             last_match = m.group(1)
     return last_match
+
+
+# ---------------------------------------------------------------------------
+# 异步 API 调用
+# ---------------------------------------------------------------------------
+
+
+async def _call_api(
+    client: Any,
+    system: str,
+    user: str,
+    model: str,
+    semaphore: asyncio.Semaphore,
+    max_tokens: int = 800,
+) -> Optional[str]:
+    """调用 DeepSeek API 生成单条 CoT。
+
+    包含 3 次重试和指数退避。关闭 thinking 模式以获得干净输出。
+
+    参数:
+        client: AsyncOpenAI 客户端。
+        system: system prompt。
+        user: user prompt。
+        model: 模型名称。
+        semaphore: 并发控制信号量。
+        max_tokens: 最大生成 token 数。
+
+    返回:
+        生成的文本，或 None（全部重试失败时）。
+    """
+    async with semaphore:
+        for attempt in range(3):
+            try:
+                resp = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    max_tokens=max_tokens,
+                    temperature=0.0,
+                    extra_body={"thinking": {"type": "disabled"}},
+                )
+                return resp.choices[0].message.content.strip()
+            except Exception as e:
+                logger.warning("API 调用失败 (attempt %d): %s", attempt + 1, e)
+                if attempt < 2:
+                    await asyncio.sleep(2**attempt)
+    return None
+
+
+async def generate_one(
+    client: Any,
+    row: Dict[str, Any],
+    data_type: str,
+    semaphore: asyncio.Semaphore,
+    model: str,
+) -> Dict[str, Any]:
+    """生成单条 CoT 并验证答案。
+
+    News 和 CF 使用统一 prompt，仅读取字段和验证字母不同。
+
+    参数:
+        client: AsyncOpenAI 客户端。
+        row: 原始 JSONL 行字典。
+        data_type: "news" 或 "cf"。
+        semaphore: 并发控制信号量。
+        model: 模型名称。
+
+    返回:
+        带有 cot_response / cot_extracted_letter / cot_valid 字段的行字典。
+    """
+    if data_type == "news":
+        passage = row["passage"]
+        expected = row["correct_letter"]
+    else:
+        passage = row["counterfactual_passage"]
+        expected = row["target_letter"]
+
+    user = build_user_prompt(passage, row)
+    text = await _call_api(client, SYSTEM_PROMPT, user, model, semaphore)
+
+    result = dict(row)
+    if text is None:
+        result["cot_response"] = None
+        result["cot_extracted_letter"] = None
+        result["cot_valid"] = False
+        return result
+
+    letter = extract_cot_answer(text)
+    result["cot_response"] = text
+    result["cot_extracted_letter"] = letter
+    result["cot_valid"] = (letter == expected)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 主流程
+# ---------------------------------------------------------------------------
+
+
+def _load_input(path: str, split: Optional[str]) -> List[Dict[str, Any]]:
+    """加载输入 JSONL，可按 split 过滤。"""
+    rows: List[Dict[str, Any]] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            if split and row.get("split") != split:
+                continue
+            rows.append(row)
+    return rows
+
+
+def _load_done_ids(path: str, id_field: str) -> set:
+    """从已有输出文件加载已完成的 ID（断点续传）。"""
+    done: set = set()
+    if not Path(path).exists():
+        return done
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+                done.add(d.get(id_field))
+            except json.JSONDecodeError:
+                continue
+    return done
+
+
+async def run(args: argparse.Namespace) -> None:
+    """异步主流程：加载 → 过滤 → 并发生成 → 写入。"""
+    from openai import AsyncOpenAI
+    from tqdm.asyncio import tqdm_asyncio
+
+    client = AsyncOpenAI(api_key=args.api_key, base_url=args.base_url)
+
+    rows = _load_input(args.input, args.split)
+    id_field = "cf_id" if args.data_type == "cf" else "id"
+    done_ids = _load_done_ids(args.output, id_field)
+    remaining = [r for r in rows if r.get(id_field) not in done_ids]
+
+    logger.info("总样本: %d, 已完成: %d, 待处理: %d", len(rows), len(done_ids), len(remaining))
+
+    if not remaining:
+        logger.info("无待处理样本，退出")
+        return
+
+    semaphore = asyncio.Semaphore(args.concurrency)
+    tasks = [
+        generate_one(client, row, args.data_type, semaphore, args.model)
+        for row in remaining
+    ]
+    results = await tqdm_asyncio.gather(*tasks, desc="Generating CoT")
+
+    valid = 0
+    total = 0
+    with open(args.output, "a", encoding="utf-8") as f:
+        for r in results:
+            if r is None:
+                continue
+            total += 1
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            if r.get("cot_valid"):
+                valid += 1
+
+    logger.info("完成: %d 条, 有效: %d (%.1f%%)", total, valid, valid / max(total, 1) * 100)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def parse_args() -> argparse.Namespace:
+    """解析命令行参数。"""
+    p = argparse.ArgumentParser(description="CoT 训练数据生成 (DeepSeek API)")
+    p.add_argument("--input", required=True, help="输入 JSONL 路径")
+    p.add_argument("--output", required=True, help="输出 JSONL 路径")
+    p.add_argument(
+        "--data-type",
+        choices=["news", "cf"],
+        required=True,
+        help="数据类型: news 或 cf",
+    )
+    p.add_argument("--split", default=None, help="仅处理指定 split (如 train)")
+    p.add_argument("--concurrency", type=int, default=32, help="并发数 (默认: 32)")
+    p.add_argument("--model", default=None, help="模型名 (默认: 读 .env)")
+    p.add_argument("--api-key", default=None, help="API key (默认: 读 .env)")
+    p.add_argument("--base-url", default=None, help="API base URL (默认: 读 .env)")
+    return p.parse_args()
+
+
+def main() -> None:
+    """入口：加载 .env → 解析参数 → 运行异步管线。"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    args = parse_args()
+    args.api_key = args.api_key or os.getenv("DEEPSEEK_LLM_API_KEY")
+    args.base_url = args.base_url or os.getenv("DEEPSEEK_LLM_BASE_URL")
+    args.model = args.model or os.getenv("DEEPSEEK_LLM_MODEL", "deepseek-v4-pro")
+
+    assert args.api_key, "需要 API key: --api-key 或 .env DEEPSEEK_LLM_API_KEY"
+
+    asyncio.run(run(args))
+
+
+if __name__ == "__main__":
+    main()
