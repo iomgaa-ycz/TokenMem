@@ -34,8 +34,12 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant. Answer the question based ONLY on the "
-    "provided passage, even if it contradicts your knowledge. Be concise."
+    "provided passage, even if it contradicts your knowledge. "
+    "Be concise. Keep reasoning under 150 words."
 )
+
+MAX_TRAINING_TOKENS = 900  # 训练 max_seq_len=1024，留 ~124 token 安全余量
+CHARS_PER_TOKEN = 3.5  # 英文粗估
 
 
 def build_user_prompt(passage: str, row: Dict[str, Any]) -> str:
@@ -59,6 +63,31 @@ def build_user_prompt(passage: str, row: Dict[str, Any]) -> str:
         f"Question: {row['question']}\n"
         f"{option_lines}\n\n"
         f"Let's think step by step, then give the answer.\n"
+        f'You MUST end your response with exactly "The answer is X" '
+        f"where X is {label_list}."
+    )
+
+
+def _build_training_prompt(row: Dict[str, Any]) -> str:
+    """构建训练时的 CoT prompt（与 Dataset CoT 模式一致，无 passage）。
+
+    用于估算 prompt + cot_response 的总 token 数，
+    判断是否超出训练 max_seq_len。
+
+    参数:
+        row: JSONL 行字典，需含 question 和 options。
+
+    返回:
+        训练时的 prompt 字符串。
+    """
+    options = row["options"]
+    labels = sorted(options.keys())
+    option_lines = "\n".join(f"{lb}. {options[lb]}" for lb in labels)
+    label_list = ", ".join(labels[:-1]) + ", or " + labels[-1]
+    return (
+        f"\nQuestion: {row['question']}\n"
+        f"{option_lines}\n"
+        f"\nLet's think step by step, then give the answer.\n"
         f'You MUST end your response with exactly "The answer is X" '
         f"where X is {label_list}."
     )
@@ -135,6 +164,11 @@ async def _call_api(
     return None
 
 
+def _estimate_training_tokens(training_prompt: str, cot_response: str) -> float:
+    """粗估训练时 prompt + response 的总 token 数。"""
+    return (len(training_prompt) + len(" ") + len(cot_response)) / CHARS_PER_TOKEN
+
+
 async def generate_one(
     client: Any,
     row: Dict[str, Any],
@@ -142,9 +176,9 @@ async def generate_one(
     semaphore: asyncio.Semaphore,
     model: str,
 ) -> Dict[str, Any]:
-    """生成单条 CoT 并验证答案。
+    """生成单条 CoT 并验证答案，超长自动重试。
 
-    News 和 CF 使用统一 prompt，仅读取字段和验证字母不同。
+    流程: 生成 → 检查答案 → 检查长度 → 超长则用简洁指令重试一次。
 
     参数:
         client: AsyncOpenAI 客户端。
@@ -163,6 +197,7 @@ async def generate_one(
         passage = row["counterfactual_passage"]
         expected = row["target_letter"]
 
+    training_prompt = _build_training_prompt(row)
     user = build_user_prompt(passage, row)
     text = await _call_api(client, SYSTEM_PROMPT, user, model, semaphore)
 
@@ -174,9 +209,33 @@ async def generate_one(
         return result
 
     letter = extract_cot_answer(text)
+    est_tokens = _estimate_training_tokens(training_prompt, text)
+
+    # 超长重试：用更强的简洁指令重新生成
+    if est_tokens > MAX_TRAINING_TOKENS:
+        logger.info(
+            "超长 (~%d tokens), 重试: %s",
+            int(est_tokens),
+            row.get("id") or row.get("cf_id"),
+        )
+        short_user = user.replace(
+            "Let's think step by step, then give the answer.",
+            "Think very briefly, then give the answer.",
+        )
+        text_retry = await _call_api(
+            client, SYSTEM_PROMPT, short_user, model, semaphore, max_tokens=400
+        )
+        if text_retry is not None:
+            letter_retry = extract_cot_answer(text_retry)
+            est_retry = _estimate_training_tokens(training_prompt, text_retry)
+            if est_retry <= MAX_TRAINING_TOKENS and letter_retry == expected:
+                text, letter = text_retry, letter_retry
+                est_tokens = est_retry
+
     result["cot_response"] = text
     result["cot_extracted_letter"] = letter
-    result["cot_valid"] = (letter == expected)
+    # 答案正确 且 长度可控 才标记 valid
+    result["cot_valid"] = (letter == expected) and (est_tokens <= MAX_TRAINING_TOKENS)
     return result
 
 
