@@ -1,0 +1,19 @@
+{
+  "model": "LLAMA31-8B",
+  "model_path": "hugglingface_model/LLAMA31-8B",
+  "method": "no_memory",
+  "dataset": "arc",
+  "scoring": "cot_nothink",
+  "compress_target_token": null,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 16,
+  "n_samples": 1172,
+  "accuracy": 0.8584,
+  "correct": 1006,
+  "extract_success": 1170,
+  "extract_success_rate": 0.9983,
+  "avg_gen_length": 410.5,
+  "latency_ms_mean": 880.09,
+  "timestamp": "2026-04-30T06:13:03.420993+00:00",
+  "git_sha": "1aa6cc7"
+}
