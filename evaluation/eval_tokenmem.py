@@ -89,45 +89,6 @@ def tokenize_knowledge(
 
 
 # ---------------------------------------------------------------------------
-# Prompt Tokenize
-# ---------------------------------------------------------------------------
-
-
-def _tokenize_prompt(
-    user_content: str,
-    tokenizer: PreTrainedTokenizerBase,
-    device: str = "cuda:0",
-) -> torch.Tensor:
-    """将用户内容编码为 input_ids，自动处理 chat template 和 thinking 开关。
-
-    Qwen3 系列: apply_chat_template(enable_thinking=False) 注入空 think 块。
-    其他模型: 有 chat_template 则使用，否则直接 tokenize。
-
-    参数：
-        user_content: 用户问题文本。
-        tokenizer: 对应模型的 tokenizer。
-        device: 目标设备。
-
-    返回：
-        input_ids tensor [1, L]。
-    """
-    has_chat = bool(getattr(tokenizer, "chat_template", None))
-    if not has_chat:
-        return tokenizer(user_content, return_tensors="pt").input_ids.to(device)
-
-    kwargs: Dict = dict(
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-    if _supports_thinking(tokenizer):
-        kwargs["enable_thinking"] = False
-
-    messages = [{"role": "user", "content": user_content}]
-    text = tokenizer.apply_chat_template(messages, **kwargs)
-    return tokenizer(text, return_tensors="pt").input_ids.to(device)
-
-
-# ---------------------------------------------------------------------------
 # CoT 批量生成评测
 # ---------------------------------------------------------------------------
 
