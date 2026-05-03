@@ -3,5 +3,6 @@
 支持 cross-attention 知识注入的模型:
 - Qwen3 (0.6B / 1.7B / 4B / 8B)  → model_type: qwen3
 - Gemma3 (1B)                      → model_type: gemma3_text
-- Ministral (3B)                   �� model_type: ministral
+- Ministral (3B)                   → model_type: ministral
+- OLMo3 (7B)                      → model_type: olmo3
 """
