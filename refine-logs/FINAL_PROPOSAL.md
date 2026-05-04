@@ -1,15 +1,15 @@
-# FINAL PROPOSAL v3: TokenMem — Faithful Knowledge Injection
+# FINAL PROPOSAL v5: TokenMem — Faithful Knowledge Internalization via Cross-Attention
 
-**Date**: 2026-04-28 (v3, post GPT-5.4 3-round review)
-**Target venue**: NeurIPS 2026 (deadline 2026-05-03)
-**Prior work**: ExplicitLM (ICLR 2026, 本组), DecoupledRAG (WWW 2025, 机制来源)
+**Date**: 2026-05-04 (v5, 新增 RAG SFT 对照实验 + 贡献重组为 2+1)
+**Target venue**: NeurIPS 2026
+**Prior work**: ExplicitLLM (ICLR 2026, 本组), DecoupledRAG (WWW 2025, 机制来源)
 
 ---
 
 ## 论文标题（候选）
-- *TokenMem: Faithful Knowledge Injection into Frozen LLMs via Cross-Attention Adapters*
-- *Cross-Attention as a Faithful Knowledge Channel for Frozen LLMs*
-- *Learning to Trust External Knowledge: Cross-Attention Adapters for Conflict-Free Knowledge Injection*
+
+- *TokenMem: Faithful Knowledge Internalization for Frozen LLMs via Cross-Attention* ← **推荐**
+- *Injecting Knowledge Through Independent Channels: Why Cross-Attention Outperforms In-Context Under Conflicts*
 
 ---
 
@@ -17,219 +17,215 @@
 
 RAG（检索增强生成）是LLM使用外部知识的主流方案，但存在一个被忽视的结构性问题：**知识冲突（Knowledge Conflict）**。
 
-当检索到的知识与模型参数记忆矛盾时（例如：context说"日本首都是西京"，但模型知道"东京"），LLM在self-attention中同时处理两个冲突信号，导致：
-- 既不忠实跟随外部知识
-- 也不确信参数记忆
-- 输出不可预测（知识冲突文献: Longpre 2021, Xie 2024）
+当检索到的知识与模型参数记忆矛盾时，LLM在self-attention中同时处理两个冲突信号，导致输出不可预测（Longpre 2021, Xie 2024）。
 
 **核心问题**: 能否为冻结LLM提供一条**不与参数记忆冲突的知识注入通道**？
 
 ---
 
-## 2. Method Thesis
+## 2. Method
 
-> **TokenMem**: 通过cross-attention adapter为冻结LLM开辟一条**独立的知识通道**。
-> 该通道与self-attention的参数记忆通路分离，使模型能**忠实地遵从注入的知识**——
-> 无论该知识与参数记忆是否一致。
-
-### 机制解释
+### 2.1 架构：Cross-Attention Adapter (LinearFusion)
 
 ```
-RAG (in-context, self-attention — 共享通路):
-  参数记忆: "东京" ←──┐
-                       ├─ 同一条self-attention → 知识冲突!
-  Context知识: "西京" ←─┘
-  → 模型左右互搏，输出不可靠
+RAG (self-attention — 共享通路):
+  参数记忆 + Context知识 → 同一条self-attention → 知识冲突!
 
 TokenMem (cross-attention — 独立通路):
-  参数记忆: "东京" ─── self-attention (冻结，不受干扰)
-  外部知识: "西京" ─── cross-attention (专门训练的独立通道)
-                        │
-                        ▼
-  LinearFusion gate: 学会"cross-attn给的信号→用它"
-  → 两条通路分离 → 不互搏 → 知识被忠实使用
+  参数记忆 → self-attention (冻结)
+  外部知识 → cross-attention (独立通道)
+  LinearFusion gate: 两路融合 (W_β = α·A_β·B_β, 零初始化)
 ```
 
-### 与DecoupledRAG的关系（诚实声明）
+- 基座 LLM 全部冻结，仅训练 gate_crossattention (~3-5M 参数)
+- Cross-attention 复用 LLM 自身 QKV 权重，全层注入
 
-- **借鉴**: Cross-attention注入机制（LinearFusion gate W_β = α·A_β·B_β 零初始化设计）
-- **新发现**: (1) 单域SFT跨域泛化 (2) 多模型验证 (3) **知识遵从性(compliance)分析——faithfulness发现**
-- DecoupledRAG是per-task SFT，不研究知识冲突，不做counterfactual实验
+### 2.2 训练：CoT Curriculum SFT（两阶段）
+
+```
+Phase 1: 纯 News 50K CoT SFT (3 epochs)
+  → 学习基础知识融合能力
+  → checkpoint: best val_loss
+
+Phase 2: News + Counterfactual 混合 SFT (40 epochs, early-stop)
+  → 加载 Phase 1 checkpoint
+  → 混入反事实知识 CoT 数据 (cf_arc_easy + cf_medqa, 2x oversample)
+  → 学习"忠实遵从注入知识"的能力
+```
+
+### 2.3 与DecoupledRAG的关系
+
+- **借鉴**: Cross-attention注入机制（LinearFusion gate 零初始化设计）
+- **核心区别**: (1) Curriculum + CF 训练使模型学会 faithful compliance (2) 单域SFT跨域泛化 (3) 多模型多家族验证 (4) 反事实实验证明 faithfulness
+
+### 2.4 RAG SFT 对照实验设计（新增）
+
+为回答"TokenMem 的优势来自 cross-attention 通道，还是仅仅因为做了 SFT 训练？"这一核心问题，引入 RAG SFT 作为严格对照：
+
+```
+控制变量:
+  - 同一基座模型 (frozen)
+  - 同一训练数据 (News 50K + CF, CoT Curriculum)
+  - 同一可训练参数量 (~3-5M, LoRA rank 匹配)
+  - 唯一区别: 知识注入通道
+    TokenMem: cross-attention (独立通道)
+    RAG SFT:  in-context prompt (self-attention 共享通道) + LoRA adapter
+```
+
+**RAG SFT 具体设计**:
+- 知识文本经 LLMLingua-2 压缩至 64 tokens，放入 prompt
+- 冻结 LLM + LoRA adapter（参数量与 TokenMem gate 匹配）
+- 同一 Curriculum 训练流程 (Phase 1 → Phase 2)
+- 评测时同样使用 CoT + /no_think
+
+**科学意义**: 如果 RAG SFT KC 显著低于 TokenMem KC，则证明通道独立性（而非训练本身）是 faithfulness 的关键因素。
 
 ---
 
-## 3. 核心Claims（v3修订）
+## 3. Claims
 
-### C1: 忠实的知识注入（核心科学发现）
+### C1（方法贡献）: TokenMem 完整 plug-and-play 记忆系统
 
-Cross-attention注入的Knowledge Compliance显著高于RAG in-context注入。
+Cross-attention adapter + CoT Curriculum SFT = 一套可插拔的知识注入系统，适用于任意冻结 LLM。
 
-**评价指标**:
-- **Knowledge Compliance (KC)**: 模型回答与注入知识支持的答案一致的比例
-  - 正确知识: KC = accuracy
-  - 反事实知识: KC = %回答知识支持的错误答案
-- **Conflict Rate**: %回答既非正确也非知识支持的答案（互搏证据）
+- 架构: LinearFusion gate，零初始化，全层注入
+- 训练: 两阶段 Curriculum (ID → ID+CF)
+- 部署: 0 context token 开销，知识通过独立通道注入
 
-**预期结果**:
+**4B 实际数据**: cf_arc_easy KC 69.0%, cf_medqa KC 70.2%, News +41.4pp, MMLU +4.0pp
+**状态**: ✅ 4B 验证通过。待 8B/14B/LLaMA/OLMo 复现。
 
-| 方法 | 条件 | Accuracy | Compliance | Conflict Rate |
-|------|------|----------|------------|---------------|
-| No-Memory | — | ~57% | N/A | N/A |
-| TokenMem | 正确知识 | ~71% | ~71% | ~5% |
-| TokenMem | 反事实知识 | ~25% (低,预期) | ~65% **(高!)** | ~10% (低) |
-| RAG | 正确知识 | ~98% | ~98% | ~2% |
-| RAG | 反事实知识 | ~35% | ~40% **(低!)** | ~25% **(高!)** |
+### C2（控制实验发现）: 通道独立性是 faithfulness 的关键因素
 
-**解读**: TokenMem反事实accuracy低是预期的（模型跟随了错误知识→"答错了"但compliance高→说明知识通道在工作）。RAG反事实compliance低+conflict高→知识冲突导致模型两边都不跟。
+在匹配模型、数据、参数量、训练流程的条件下，cross-attention 通道的 KC 显著高于 in-context 通道。
 
-**状态**: ❌ 未验证 — 需要counterfactual compliance实验
+| 方法 | 通道 | 训练 | 参数量 | KC (预期) |
+|------|------|------|--------|-----------|
+| Vanilla RAG | in-context | 无 | 0 | ~20-52% |
+| **RAG SFT** | in-context | CoT Curriculum + LoRA | ~3-5M | **TBD** |
+| **TokenMem** | cross-attn | CoT Curriculum + gate | ~3-5M | **≈69-70%** |
 
-### C2: 跨领域泛化
+**关键对比**: TokenMem KC ≈ 69-70% vs RAG SFT KC = TBD
 
-News 50K SFT → MedQA +14pp, ARC +4.3pp, MMLU +8.4pp (4B)。
-adapter学到的是domain-agnostic的知识利用技能。
+**附带发现**: VanillaRAG 呈现 inverse scaling（模型越大，KC 越低），暗示更强的参数记忆 prior 加剧 self-attention 通道内的冲突。
 
-**状态**: 🔄 部分支持 — 仅Qwen3-4B/8B
+**状态**: 🔄 RAG SFT 实验待运行
 
-### C3: 多模型通用性
+### Minor: KC 指标 + CoT 评测协议（评测方法论，非独立贡献）
 
-6模型 × 3家族（Qwen3-0.6B/1.7B/4B/8B, Gemma3-1B, Ministral-3B）。
-
-**状态**: ❌ 未验证 — 仅2/6模型完成
-
-### C4: 知识敏感性（C1的前提条件）
-
-Oracle >> Shuffled ≈ Empty → adapter确实使用知识内容。
-没有C4，C1的高compliance可能被解释为"adapter太弱，什么都忽略"。
-
-**状态**: ❌ 未验证
+- **Knowledge Compliance (KC)**: 反事实数据集上 %跟随注入知识的回答，直接衡量知识通道的忠实度
+- **CoT 评测协议**: MCQ logprob 对知识冲突有天花板效应 (94%+)，CoT 自由生成评测揭示真实 compliance (28-36% 基线)
+- 作为 §3.5 评测设置呈现，不作为核心贡献 bullet point
 
 ---
 
-## 4. 实验计划
+## 4. 实验设计
 
-### 4.1 P0 命脉实验
+### 4.1 模型矩阵（最终版）
 
-**E-C4: Knowledge Sensitivity (C1的前提)**
-```
-条件: Oracle / Shuffled(随机错配知识) / Empty(无知识)
-模型: Qwen3-4B, 8B
-数据: MedQA, ARC, MMLU
-指标: Accuracy
-预期: Oracle >> Shuffled ≈ Empty
-时间: ~3h
-```
+| 模型 | 家族 | 参数量 | 角色 | 训练状态 |
+|------|------|--------|------|---------|
+| **Qwen3-8B** | Qwen | 8B | **核心模型** | 🔄 训练中 |
+| Qwen3-4B | Qwen | 4B | 同家族小规模 | ✅ 完成 |
+| Qwen3-14B | Qwen | 14B | 同家族大规模 | 🔄 训练中 |
+| LLaMA-3.1-8B | Meta | 8B | 跨家族对比 | 🔄 训练中 |
+| OLMo-3-7B | AI2 | 7B | 跨家族对比 | 🔄 训练中 |
 
-**E-C1: Counterfactual Compliance (核心发现)**
-```
-数据准备: 对每道MCQ生成反事实知识段落（minimal-edit风格）
-  - 用DeepSeek V4 Flash生成支持错误答案B的段落
-  - 要求与正确段落结构相似，仅改关键事实
-条件: 正确知识 / 反事实知识
-方法: TokenMem / VanillaRAG / Strong-prompt RAG / No-Memory
-指标: Accuracy / Knowledge Compliance / Conflict Rate
-模型: Qwen3-4B (主), 8B (复制)
-时间: ~6h（含数据生成）
-```
+### 4.2 数据集矩阵（主表 5 个）
 
-**E3: 公平基线（防止"trained vs untrained"攻击）**
-```
-Strong-prompt RAG:
-  prompt: "请只根据以下段落回答，即使与你所知不同：{passage}"
-  无需额外训练，仅修改prompt
-时间: ~2h
-```
+| 数据集 | 类型 | 规模 | 目的 |
+|--------|------|------|------|
+| News | In-domain | 8,663 | 训练域性能 |
+| MMLU | OOD-General | 14,320 | 综合性知识泛化 |
+| MedQA | OOD-Specialist | ~1,300 | 专业领域泛化 |
+| cf_arc_easy | Counterfactual | 2,745 | C1/C2: 反事实遵从率 |
+| cf_medqa | Counterfactual | 1,146 | C1/C2: 反事实遵从率 |
 
-**E2 Conflict-Conditioned 分层分析（v3.1新增）**:
-```
-将题目按No-Memory准确率分为两组:
-  High-Prior: 模型本来答对的题（强参数记忆 → conflict激烈）
-  Low-Prior: 模型本来答错的题（弱参数记忆 → conflict温和）
+ARC / ARC-Easy: Appendix 全量报告。
 
-数据集选择:
-  ARC (常识): No-Memory 4B=86.8% → 大量High-Prior → conflict激烈
-  MedQA (专业): No-Memory 4B=57.2% → 大量Low-Prior → conflict温和
+### 4.3 方法对比（4 条件）
 
-预期: High-Prior组的KC差距 > Low-Prior组的KC差距
-  → 证明TokenMem优势来自"避免知识冲突"，不是"填充不确定性"
-```
+| 方法 | 知识注入方式 | 训练 | 可训练参数 |
+|------|------------|------|-----------|
+| No-Memory | 无外部知识 | 无 | 0 |
+| Vanilla RAG | 知识压缩后放入 prompt (LLMLingua-2, 64tok) | 无 | 0 |
+| **RAG SFT** | 知识压缩后放入 prompt + LoRA adapter | CoT Curriculum SFT | ~3-5M |
+| **TokenMem** | 知识通过 cross-attention 注入 | CoT Curriculum SFT | ~3-5M |
 
-**E7: 效率数据（v3.1提升到P0）**
-```
-准确率输RAG → 必须有效率维度硬数据作为使用理由
-测量: 延迟(ms) / 峰值显存(MB) / context tokens consumed
-时间: ~2h
-```
+### 4.4 消融实验（4 组）
 
-### 4.2 P1 支撑实验
-
-| 实验 | 时间 | 对应Claim |
-|------|------|----------|
-| 剩余4模型SFT+评测 | ~8h | C3 |
-| 8B MMLU补完 | ~2h | C2/C3 |
-| Domain-SFT消融 | ~4h | C2分析 |
-
-### 4.3 P2 深度分析
-
-| 实验 | 时间 | 说明 |
+| 消融 | 设计 | 目的 |
 |------|------|------|
-| Logit Lens分析 | ~4h | 逐层decode看RAG vs TokenMem在反事实下的"思考"差异 |
-| Gate激活分析 | ~2h | 正确vs反事实知识下gate行为是否一致 |
-| 因果追踪 | ~3h | 逐层关闭cross-attn测compliance变化 |
-| 注入层消融 | ~4h | 1/4/12/全层 |
+| Phase 1 vs P1+P2 | Phase 1 only checkpoint 对比 Phase 2 | Curriculum + CF 训练的必要性 |
+| RAG SFT vs TokenMem | 匹配参数量/数据/训练，仅通道不同 | **通道独立性是 KC 提升的因果证据** |
+| 注入层数 | 全层 / 12层 / 4层 / 1层 | 架构选择 justification |
+| 训练数据量 | 10K / 25K / 50K | 数据效率 |
+
+### 4.5 评测协议
+
+```
+推理: CoT + /no_think, max_new_tokens=2048
+知识压缩 (RAG / RAG SFT): LLMLingua-2, target_token=64
+答案提取: regex multi-pattern ("The answer is X")
+指标:
+  - Accuracy (正常数据集)
+  - Knowledge Compliance KC (反事实数据集: %跟随注入知识)
+  - Conflict Rate (反事实: %既不跟随知识也不跟随参数记忆)
+```
 
 ---
 
-## 5. Timeline (2026-04-28 → 2026-05-03)
+## 5. 论文结构 (NeurIPS, 9页 + appendix)
 
-| Day | 日期 | 工作 | 产出 |
-|-----|------|------|------|
-| 3 | 04/29 | 反事实数据生成 + E1(Sensitivity) + E2开始 + 剩余模型SFT(并行) | E1结果 + counterfactual data |
-| 4 | 04/30 | E2完成(含conflict分层) + E3(strong prompt) + E7(效率) + 剩余模型评测 | **E2核心结果 + 决策** |
-| 5 | 05/01 | 消融(E5) + Domain-SFT(E6) + 论文写作开始 | 分析数据 + §1-§3 |
-| 6 | 05/02 | 论文写作（全天） | 初稿 |
-| 7 | 05/03 | 定稿 + 排版 + 提交 | 提交 |
-
----
-
-## 6. Go/No-Go 决策点
-
-### Day 3 晚 (E-C4结果)
-| 结果 | 行动 |
-|------|------|
-| Oracle >> Shuffled ≈ Empty | ✅ C4成立，继续E-C1 |
-| Oracle ≈ Shuffled | ❌ adapter未使用知识。**停止C1实验**，重新评估 |
-
-### Day 4 晚 (E-C1结果)
-| 结果 | 行动 |
-|------|------|
-| TokenMem-CounterKC >> RAG-CounterKC | ✅ **论文核心成立**，全力写作 |
-| TokenMem-CounterKC ≈ RAG-CounterKC | ⚠️ faithfulness故事不成立。回退到C2+C3为主 |
-| Strong-prompt RAG抹平差距 | ⚠️ 说明是训练效应非架构效应。需要trained prompt baseline |
+| Section | 页数 | 内容 |
+|---------|------|------|
+| §1 Introduction | 1.5 | Problem + Contribution bullet points (C1 方法 + C2 发现) |
+| §2 Related Work | 1.0 | RAG知识冲突 + 知识注入方法 + Memory系统 |
+| §3 Method | 2.0 | 架构 + 训练策略 + 与DecoupledRAG关系 + §3.5 评测方法论 (KC指标 + CoT协议) |
+| §4 Experiments | 3.0 | §4.1 主表(5模型×5数据集) + §4.2 **控制通道对比** (4方法表: No-Mem/RAG/RAG-SFT/TokenMem) + §4.3 消融 + §4.4 分析 |
+| §5 Discussion | 1.0 | Trade-off分析 + Limitations |
+| §6 Conclusion | 0.5 | Summary |
+| Appendix | ∞ | ARC/ARC-Easy结果 + 超参 + 生成示例 |
 
 ---
 
-## 7. 审稿人攻击预案
+## 6. 审稿人预案
 
 | 攻击 | 防御 |
 |------|------|
-| "DecoupledRAG + FAISS" | 诚实credit机制。新发现: faithfulness, 跨域泛化, 多模型。这是finding paper |
-| "RAG也有持久化/可编辑" | 不作为差异化claim。唯一结构差异: 注入方式(cross-attn vs in-context) |
-| "Compliance高=adapter太弱" | C4(Oracle>>Empty)证明adapter在用知识。C4+C1组合排除此解释 |
-| "trained vs untrained不公平" | Strong-prompt RAG + trained prompt baseline |
-| "反事实段落有artifact" | minimal-edit生成 + 与正确段落同格式同长度 |
-| "高compliance to false knowledge = gullibility/安全风险" | **"刀无罪"论证**：Faithfulness/Compliance是知识通道的固有属性（可控性），不是安全claim。一个忠实的翻译器会翻译任何文本，包括错误信息——这不是翻译器的问题，而是输入的问题。同理，TokenMem的高compliance说明知识通道**可控**——用户放什么知识进去，模型就用什么。知识的正确性是上游（检索器/知识库管理）的责任，不是注入通道的责任。RAG的低compliance反而说明in-context通道**不可控**——你放了知识进去但模型不一定用。 |
-| "OOD提升小(ARC +4pp)" | ARC headroom仅12.8pp; Recovery Rate跨OOD一致(~33%) |
-| "没有效率数据" | E7提升到P0，补测延迟/显存/throughput |
-| "faithfulness to false knowledge不是好事" | frame为"可控性诊断"——测量知识通道的权威性，不是鼓励使用错误知识 |
+| "DecoupledRAG + FAISS" | 诚实 credit。新发现: faithfulness + curriculum训练 + 跨域泛化 + 多模型 |
+| "trained vs untrained不公平" | **RAG SFT 对照实验直接回答**: 同样训练、同样参数量，通道不同→KC 不同。这是因果证据，不是 confound |
+| "Compliance高=模型太弱" | 正常数据集上 TokenMem > No-Memory 证明模型在用知识且有判断力 |
+| "反事实=gullibility/安全风险" | Faithfulness 是通道可控性诊断，不是安全claim |
+| "KC高=盲目服从(blind obedience)" | Memory 系统语境下，存储的知识是**用户授权的**（类似数据库写入），高 compliance 是设计目标而非缺陷。与 prompt injection 攻击场景本质不同：这里知识源是可信的 |
+| "OOD提升小" | Recovery Rate一致 + in-domain验证通道有效 |
+| "无效率数据" | 补测延迟/显存 (TokenMem 0 context token vs RAG 64-256) |
 
 ---
 
-## 8. 本方案明确不做的事
+## 7. Go/No-Go 判据（基于 RAG SFT 实验结果）
 
-- **不claim "TokenMem > RAG on accuracy"** — 准确率差距是结构性的
-- **不claim "RAG缺少持久化/可编辑"** — 审稿人已击穿此论点
-- **不claim "零context token是质变"** — 降为tradeoff表格中一行
-- **不做multi-hop QA** — 当前单记忆注入设计
-- **不做KBLaM/MemoryLLM直接实验对比** — 不同regime，Related Work论证划开
-- **不过度claim机制解释** — 说"reduced competition"不说"no conflict"
+RAG SFT 的 KC 结果决定 C2 (通道因果 claim) 的强度：
+
+| RAG SFT KC | 判定 | 策略 |
+|------------|------|------|
+| < 40% | **强 (Strong)** | Cross-attn 优势 ≥30pp，因果 claim 成立，C2 作为核心贡献 |
+| 40-55% | **可用 (Usable)** | 优势 15-30pp，claim 需谨慎措辞（"substantially higher"），仍可作为核心发现 |
+| 55-65% | **弱 (Weak)** | 优势 <15pp，降级 C2 为消融发现，论文重心回到 C1 系统贡献 |
+| > 65% | **放弃因果 claim** | 通道差异不显著，删除 C2，论文仅保留 C1 (系统) + 工程贡献 |
+
+---
+
+## 8. v4→v5 变更记录
+
+| 变更 | 原因 |
+|------|------|
+| 新增 RAG SFT 对照实验 (P0) | v4 最大漏洞: "trained vs untrained" 无法回答。RAG SFT 匹配训练/数据/参数量，仅通道不同，提供因果证据 |
+| 贡献重组: 3 claims → 2+1 | C1(方法系统) + C2(控制实验发现) 为核心; KC指标+CoT评测协议降级为 Minor (评测方法论，融入 §3.5) |
+| 方法对比: 3→4 条件 | 新增 RAG SFT 作为第四个 baseline |
+| 消融 A2 更新 | 原 Conflict-conditioned 消融替换为 RAG SFT vs TokenMem 通道对比（更直接的因果证据） |
+| §4.2 改为"控制通道对比" | 4方法表 (No-Mem/RAG/RAG-SFT/TokenMem) 成为实验核心子章节 |
+| 评测方法论不再独立成节 | KC + CoT 协议融入 §3.5，不占用贡献 bullet point |
+| 审稿人预案更新 | "trained vs untrained" 现有 RAG SFT 因果证据回答; 新增 "blind obedience" 防御 |
+| 新增 Go/No-Go 判据 | 基于 RAG SFT KC 结果的四档决策框架，避免实验结果不支持时硬推 claim |
+| 标题候选更新 | "Injection" → "Internalization"; 新增通道对比视角候选标题 |

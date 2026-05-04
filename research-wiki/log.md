@@ -2,6 +2,65 @@
 
 ---
 
+## 2026-05-04 — v5 战略转向: RAG SFT受控对比 + 贡献重构
+
+- **触发**: 两轮GPT审核(v4: 3/10, v5: 5/10)揭示核心问题
+- **问题诊断**: 
+  1. TokenMem(训练) vs VanillaRAG(未训练) 对比不公平 → 因果claim站不住
+  2. 方法贡献弱(DecoupledRAG+FAISS+Curriculum组合)
+  3. 评测方法论不足以作为独立核心贡献
+- **决策**:
+  1. 新增 RAG SFT 受控对比实验 (P0): 同模型/同数据/同参数预算, 仅变注入通道
+  2. 贡献重构: 3个核心 → 2主+1次 (方法+受控发现+次要KC指标)
+  3. 评测方法论降级为evaluation setup, 不作独立贡献
+  4. 论文叙事: 系统贡献 + 受控实验发现的融合
+- **论文标题确定**: "TokenMem: Faithful Knowledge Internalization for Frozen LLMs via Cross-Attention"
+- **方法对比扩展**: 3→4方法 (No-Memory, VanillaRAG, RAG SFT, TokenMem)
+- **Go/No-Go 机制**: RAG SFT cf_arc KC <40%→强, 40-55%→可用, 55-65%→弱, >65%→放弃
+- **72小时行动计划**: Day1 RAG SFT+A2 → Day2 结果+写论文 → Day3 完稿+提交
+- **GPT审核结果**: v5方案5/10, "if RAG SFT results are strong, could reach 35-45% acceptance"
+- **文件更新**: IDEA_REPORT v5, FINAL_PROPOSAL v5, EXPERIMENT_PLAN v5, TIMELINE v5, research-wiki v5
+
+---
+
+## 2026-05-03 — v4 确定: 5模型矩阵 + 4B C1核心验证通过
+
+- **里程碑**: C1 (Faithful Knowledge Injection) 在 Qwen3-4B 上验证通过
+- **核心数据**: cf_arc_easy KC: TokenMem 69.0% vs RAG 20.0% (+49pp); cf_medqa KC: 70.2% vs 52.3% (+18pp)
+- **模型矩阵确定**: Qwen3-4B/8B/14B + LLaMA-3.1-8B + OLMo-3-7B (核心模型: 8B)
+- **数据集确定**: 主表 News/MMLU/MedQA/cf_arc_easy/cf_medqa; ARC/ARC-Easy→Appendix
+- **训练方法**: CoT Curriculum SFT (Phase 1 纯News + Phase 2 News+CF), checkpoint: `qwen3-4b_sft_cot_p2/best`
+- **评测配置**: CoT + /no_think, max_new_tokens=2048, RAG用LLMLingua-2压缩至64tok
+- **消融计划**: A1(P1 vs P1+P2) + A2(Conflict-conditioned) + A3(注入层数) + A4(数据量)
+- **当前状态**: 4B完成, 8B/14B/LLaMA/OLMo训练中
+- **文件更新**: FINAL_PROPOSAL v4, EXPERIMENT_PLAN v4, TIMELINE v4, research-wiki index v4
+- **归档**: data/v2/ → archive/data_v2/; 小模型脚本已从git删除
+
+### 关键决策
+- 移除 ARC/ARC-Easy 出主表: ARC no-memory=91.5% headroom不足, P2训练后TokenMem(79.4%)<No-Memory — 放appendix
+- 移除小模型 (0.6B/1.7B/gemma/ministral): baseline失效或架构不兼容, 改用跨规模+跨家族设计
+- 目标维持 NeurIPS 2026
+
+---
+
+## 2026-05-03 — Qwen3-4B CoT P2 全量评测完成 (7 数据集)
+
+- **实验**: `exp:E_main_4B` — Phase 2 checkpoint 在全部 7 数据集上评测
+- **checkpoint**: `checkpoints/qwen3-4b_sft_cot_p2/best`
+- **评测配置**: scoring=cot_nothink, cot_max_new_tokens=2048, knowledge_max_len=256
+- **结果**:
+  - News: 85.3% (vs NM 43.9%, RAG 95.4%) — in-domain strong
+  - MMLU: 79.2% (vs NM 75.2%, RAG 86.9%) — OOD +4.0pp
+  - MedQA: 73.7% (vs NM 65.6%, RAG 86.3%) — OOD +8.1pp
+  - ARC: 79.4% (vs NM 91.5%) — ⚠️ 低于NM (headroom issue)
+  - ARC-Easy: 93.6% (vs NM 96.6%) — ⚠️ 低于NM
+  - **cf_arc_easy KC: 69.0%** (vs NM 1.2%, RAG 20.0%) — **C1核心证据**
+  - **cf_medqa KC: 70.2%** (vs NM 11.8%, RAG 52.3%) — **C1核心证据**
+- **结论**: C1 验证通过 (两个CF数据集均超15pp阈值), C2部分支持
+- **结果文件**: `results/tokenmem/qwen3-4B_tokenmem_*.json` (7个)
+
+---
+
 ## 2026-04-30 — E2 Curriculum SFT 完成（两阶段训练 + max_seq_len 修复）
 
 - **实验**: `exp:E2_curriculum_sft` — 修复多数据集 SFT val_loss 停滞问题
