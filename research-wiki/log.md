@@ -2,6 +2,42 @@
 
 ---
 
+## 2026-05-04 — 论文初稿完成 + Method 重构
+
+- **论文仓库**: `TokenMem-paper/` (独立 git repo，与 Overleaf 通过 GitHub 双向同步)
+- **初稿状态**: 7 个 section 全部写完，Method/Related Work 0 占位符；Experiments 45 占位符（待填数据）
+- **已推送**: 两次 commit (e2f6909, 91aa37a) 已 push 到 Overleaf
+
+### Method 重构 (核心决策)
+
+**问题诊断**: 原版 §3 与 DecoupledRAG §3 高度相似——重写了相同的 cross-attention 公式，审稿人会认为"方法增量性过强"。
+
+**重构方案**:
+1. **新增 §3.1 Problem Formulation**: 形式化 shared pathway 的 knowledge conflict。定义 parametric prior vs contextual signal 在 self-attention residual stream 中竞争。这是 DecoupledRAG 完全没有的理论角度——他们讲效率，我们讲忠实性。
+2. **精简 §3.2 Architecture**: 一句话引用 DecoupledRAG 机制（"We adopt ... from [DecoupledRAG]"），不重写公式推导。只保留 gate 公式 + 新增 pathway 对比表。
+3. **大幅扩展 §3.3 Curriculum Training**: 从 0.3 页扩展到 ~1 页。新增理论支撑：
+   - **梯度冲突** (PCGrad, Yu et al. NeurIPS 2020): g_util 和 g_cf 方向相反 → cos(φ)<0 → 联合训练振荡
+   - **延续法** (Bengio 2009, ICML): Phase 1 找到平坦盆地 → Phase 2 在盆地内微调
+   - 形式化 Phase 1 loss (L_util) 和 Phase 2 loss (L_util + λ·L_cf)
+4. **Evaluation Protocol 移入 §4.1**: KC 定义和 CoT 评测作为 Experiments Setup 呈现
+
+**差异化效果**:
+- Cross-attention 篇幅：~1 页 → ~0.5 页（引用代替重写）
+- Curriculum 篇幅：~0.3 页 → ~1 页（含理论支撑）
+- 审稿人印象：从"DecoupledRAG 翻版"变为"新问题视角 + 有理论支撑的训练方法"
+
+### 新增引用
+- Yu et al. 2020, "Gradient Surgery for Multi-Task Learning", NeurIPS — 梯度冲突理论
+- Bengio et al. 2009, "Curriculum Learning", ICML — 延续法框架
+- Hacohen & Weinshall 2019, "On The Power of Curriculum Learning", ICML — 平坦盆地
+
+### 待完成
+- Figure 1 (overview diagram): 已生成 prompt v2，待用确定性工具(figure-spec)生成最终版
+- 实验数据填充: 4 模型训练中 + RAG SFT 待启动
+- NeurIPS checklist 填写
+
+---
+
 ## 2026-05-04 — v5 战略转向: RAG SFT受控对比 + 贡献重构
 
 - **触发**: 两轮GPT审核(v4: 3/10, v5: 5/10)揭示核心问题
