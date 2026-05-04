@@ -15,7 +15,7 @@ N_SAMPLES=${N_SAMPLES:--1}
 
 COMMON="python -m evaluation.eval_tokenmem \
     --model-path hugglingface_model/qwen3-4B \
-    --gate-dir checkpoints/qwen3-4b_sft_p2/best \
+    --gate-dir checkpoints/qwen3-4b_sft_cot_p2/best \
     --output-dir results/tokenmem \
     --knowledge-max-len 256 \
     --cot-max-new-tokens 2048 \
@@ -23,12 +23,12 @@ COMMON="python -m evaluation.eval_tokenmem \
     --n-samples $N_SAMPLES"
 
 echo "=== qwen3-4b / tokenmem (CoT + cross-attention) ==="
+$COMMON --dataset cf_arc_easy_val --data-dir data/counterfactual
+$COMMON --dataset cf_medqa_val    --data-dir data/counterfactual
 $COMMON --dataset medqa        --data-dir data/ood
 $COMMON --dataset arc          --data-dir data/ood
 $COMMON --dataset mmlu         --data-dir data/ood
 $COMMON --dataset news         --data-dir data/news
 $COMMON --dataset arc_easy     --data-dir data/ood
-$COMMON --dataset cf_arc_easy_val --data-dir data/counterfactual
-$COMMON --dataset cf_medqa_val    --data-dir data/counterfactual
 
 echo "=== qwen3-4b / tokenmem 完成 ==="

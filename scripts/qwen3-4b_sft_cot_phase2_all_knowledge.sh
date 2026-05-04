@@ -24,7 +24,7 @@ export PYTHONPATH="${ROOT}:${PYTHONPATH:-}"
 mkdir -p logs
 
 # 前置检查
-if [ ! -f "checkpoints/qwen3-4b_sft_cot_p1_v1/best/meta.json" ]; then
+if [ ! -f "checkpoints/qwen3-4b_sft_cot_all_knowledge_p1/best/meta.json" ]; then
     echo "ERROR: v1 Phase 1 best checkpoint 不存在"
     exit 1
 fi
@@ -35,23 +35,23 @@ python -m accelerate.commands.launch \
     --main_process_port "${MAIN_PROCESS_PORT}" \
     training/sft.py \
     --model-name-or-path  hugglingface_model/qwen3-4B \
-    --load-gates          checkpoints/qwen3-4b_sft_cot_p1_v1/best \
+    --load-gates          checkpoints/qwen3-4b_sft_cot_all_knowledge_p1/best \
     --train-jsonl         data/news/train_cot.jsonl \
     --cf-train-jsonl      data/counterfactual/arc_easy_cot.jsonl data/counterfactual/medqa_cot.jsonl \
     --cf-oversample       2 \
     --val-jsonl           data/news/val_cot.jsonl \
     --cf-val-jsonl        data/counterfactual/arc_easy_cot_val.jsonl data/counterfactual/medqa_cot_val.jsonl \
-    --ckpt-dir            checkpoints/qwen3-4b_sft_cot_p2 \
+    --ckpt-dir            checkpoints/qwen3-4b_sft_cot_all_knowledge_p2 \
     --prompt-mode         cot \
     --epochs              40 \
-    --batch-size          2 \
+    --batch-size          4 \
     --lr                  1e-3 \
     --weight-decay        0.0 \
     --grad-clip           0.0 \
     --grad-accum-steps    16 \
     --max-seq-len         1024 \
     --knowledge-max-len   256 \
-    --knowledge-strided-len 64 \
+    --knowledge-strided-len 256 \
     --save-steps          500 \
     --eval-steps          500 \
     --early-stop-patience 5 \

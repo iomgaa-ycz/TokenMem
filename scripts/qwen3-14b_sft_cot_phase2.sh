@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# qwen3-4b_sft_cot_phase2.sh — Qwen3-4B CoT Curriculum Phase 2: News + CF SFT
+# qwen3-14b_sft_cot_phase2.sh — Qwen3-14B CoT Curriculum Phase 2: News + CF SFT
 #
-# 加载 v1 Phase 1 best gate，混入 CoT 格式的反事实数据继续训练。
-# 与 v1 Phase 2 完全相同配置 (batch=2, grad_accum=16)，仅增加轮次 + 早停。
+# 加载 Phase 1 best gate，混入 CoT 格式的反事实数据继续训练。
+# epochs=50, early_stop_patience=5。
 #
 # 前置条件:
-#   1. v1 Phase 1 完成: checkpoints/qwen3-4b_sft_cot_p1_v1/best/ 存在
+#   1. Phase 1 完成: checkpoints/qwen3-14b_sft_cot_p1/best/ 存在
 #   2. CF CoT 数据已生成: data/counterfactual/*_cot.jsonl
 #
 # 复现:
-#   bash scripts/qwen3-4b_sft_cot_phase2.sh
-#   CUDA_VISIBLE_DEVICES=2,3 NUM_GPUS=2 bash scripts/qwen3-4b_sft_cot_phase2.sh
+#   bash scripts/qwen3-14b_sft_cot_phase2.sh
+#   CUDA_VISIBLE_DEVICES=2,3 NUM_GPUS=2 bash scripts/qwen3-14b_sft_cot_phase2.sh
 set -euo pipefail
 
 : "${CUDA_VISIBLE_DEVICES:=0}"
 : "${NUM_GPUS:=2}"
-: "${MAIN_PROCESS_PORT:=29502}"
+: "${MAIN_PROCESS_PORT:=29503}"
 export CUDA_VISIBLE_DEVICES
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,8 +24,8 @@ export PYTHONPATH="${ROOT}:${PYTHONPATH:-}"
 mkdir -p logs
 
 # 前置检查
-if [ ! -f "checkpoints/qwen3-4b_sft_cot_p1_v1/best/meta.json" ]; then
-    echo "ERROR: v1 Phase 1 best checkpoint 不存在"
+if [ ! -f "checkpoints/qwen3-14b_sft_cot_p1/best/meta.json" ]; then
+    echo "ERROR: Phase 1 best checkpoint 不存在，请先运行 scripts/qwen3-14b_sft_cot_phase1.sh"
     exit 1
 fi
 
@@ -34,16 +34,16 @@ python -m accelerate.commands.launch \
     --mixed_precision bf16 \
     --main_process_port "${MAIN_PROCESS_PORT}" \
     training/sft.py \
-    --model-name-or-path  hugglingface_model/qwen3-4B \
-    --load-gates          checkpoints/qwen3-4b_sft_cot_p1_v1/best \
+    --model-name-or-path  hugglingface_model/qwen3-14B \
+    --load-gates          checkpoints/qwen3-14b_sft_cot_p1/best \
     --train-jsonl         data/news/train_cot.jsonl \
     --cf-train-jsonl      data/counterfactual/arc_easy_cot.jsonl data/counterfactual/medqa_cot.jsonl \
     --cf-oversample       2 \
     --val-jsonl           data/news/val_cot.jsonl \
     --cf-val-jsonl        data/counterfactual/arc_easy_cot_val.jsonl data/counterfactual/medqa_cot_val.jsonl \
-    --ckpt-dir            checkpoints/qwen3-4b_sft_cot_p2 \
+    --ckpt-dir            checkpoints/qwen3-14b_sft_cot_p2 \
     --prompt-mode         cot \
-    --epochs              40 \
+    --epochs              50 \
     --batch-size          2 \
     --lr                  1e-3 \
     --weight-decay        0.0 \
@@ -58,4 +58,4 @@ python -m accelerate.commands.launch \
     --num-workers         4 \
     --swanlab-project     tokenmem \
     --knowledge-field     passage \
-    2>&1 | tee "logs/qwen3-4b_sft_cot_phase2.log"
+    2>&1 | tee "logs/qwen3-14b_sft_cot_phase2.log"
