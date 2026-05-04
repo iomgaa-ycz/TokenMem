@@ -404,6 +404,7 @@ def run_evaluation(
                 model_path,
                 dtype=torch.bfloat16,
                 trust_remote_code=True,
+                attn_implementation="sdpa",
             )
             .to(device)
             .eval()
@@ -415,6 +416,7 @@ def run_evaluation(
                 model_path,
                 dtype=torch.bfloat16,
                 trust_remote_code=True,
+                attn_implementation="sdpa",
             )
             .to(device)
             .eval()
