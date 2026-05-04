@@ -3,10 +3,17 @@
   "model_path": "hugglingface_model/qwen3-8B",
   "method": "vanilla_rag",
   "dataset": "cf_arc_easy_val",
+  "scoring": "cot_nothink",
+  "compress_target_token": 64,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 4,
   "n_samples": 2745,
-  "accuracy": 0.8149,
-  "correct": 2237,
-  "latency_ms_mean": 154.37,
-  "timestamp": "2026-04-29T04:21:24.624239+00:00",
-  "git_sha": "74564b9"
+  "accuracy": 0.1942,
+  "correct": 533,
+  "extract_success": 2743,
+  "extract_success_rate": 0.9993,
+  "avg_gen_length": 338.8,
+  "latency_ms_mean": 2417.47,
+  "timestamp": "2026-04-30T13:02:25.402203+00:00",
+  "git_sha": "1aa6cc7"
 }

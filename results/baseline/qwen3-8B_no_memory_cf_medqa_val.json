@@ -3,10 +3,17 @@
   "model_path": "hugglingface_model/qwen3-8B",
   "method": "no_memory",
   "dataset": "cf_medqa_val",
+  "scoring": "cot_nothink",
+  "compress_target_token": null,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 4,
   "n_samples": 1146,
-  "accuracy": 0.1283,
-  "correct": 147,
-  "latency_ms_mean": 149.62,
-  "timestamp": "2026-04-29T04:07:33.099756+00:00",
-  "git_sha": "74564b9"
+  "accuracy": 0.1038,
+  "correct": 119,
+  "extract_success": 1135,
+  "extract_success_rate": 0.9904,
+  "avg_gen_length": 601.4,
+  "latency_ms_mean": 4478.91,
+  "timestamp": "2026-04-30T15:19:31.550419+00:00",
+  "git_sha": "1aa6cc7"
 }
