@@ -45,7 +45,7 @@ python -m accelerate.commands.launch \
     --knowledge-strided-len 64 \
     --save-steps          500 \
     --eval-steps          500 \
-    --num-workers         4 \
+    --num-workers         0 \
     --swanlab-project     tokenmem \
     --knowledge-field     passage \
     2>&1 | tee "logs/qwen3-14b_sft_cot_phase1.log"
