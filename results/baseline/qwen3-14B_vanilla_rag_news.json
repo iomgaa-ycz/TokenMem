@@ -1,0 +1,19 @@
+{
+  "model": "qwen3-14B",
+  "model_path": "hugglingface_model/qwen3-14B",
+  "method": "vanilla_rag",
+  "dataset": "news",
+  "scoring": "cot_nothink",
+  "compress_target_token": 64,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 2,
+  "n_samples": 8663,
+  "accuracy": 0.9657,
+  "correct": 8366,
+  "extract_success": 8663,
+  "extract_success_rate": 1.0,
+  "avg_gen_length": 147.3,
+  "latency_ms_mean": 2962.98,
+  "timestamp": "2026-05-01T12:44:08.439403+00:00",
+  "git_sha": "1aa6cc7"
+}

@@ -1,0 +1,19 @@
+{
+  "model": "qwen3-14B",
+  "model_path": "hugglingface_model/qwen3-14B",
+  "method": "vanilla_rag",
+  "dataset": "cf_arc_easy_val",
+  "scoring": "cot_nothink",
+  "compress_target_token": 64,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 2,
+  "n_samples": 2745,
+  "accuracy": 0.1909,
+  "correct": 524,
+  "extract_success": 2745,
+  "extract_success_rate": 1.0,
+  "avg_gen_length": 227.7,
+  "latency_ms_mean": 4570.42,
+  "timestamp": "2026-05-01T19:03:13.003213+00:00",
+  "git_sha": "1aa6cc7"
+}
