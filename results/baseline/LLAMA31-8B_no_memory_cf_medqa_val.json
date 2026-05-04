@@ -1,0 +1,19 @@
+{
+  "model": "LLAMA31-8B",
+  "model_path": "hugglingface_model/LLAMA31-8B",
+  "method": "no_memory",
+  "dataset": "cf_medqa_val",
+  "scoring": "cot_nothink",
+  "compress_target_token": null,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 16,
+  "n_samples": 1146,
+  "accuracy": 0.0934,
+  "correct": 107,
+  "extract_success": 1127,
+  "extract_success_rate": 0.9834,
+  "avg_gen_length": 678.1,
+  "latency_ms_mean": 1966.74,
+  "timestamp": "2026-04-30T20:51:08.991929+00:00",
+  "git_sha": "1aa6cc7"
+}

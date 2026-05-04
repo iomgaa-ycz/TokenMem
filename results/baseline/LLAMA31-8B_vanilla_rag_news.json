@@ -1,0 +1,19 @@
+{
+  "model": "LLAMA31-8B",
+  "model_path": "hugglingface_model/LLAMA31-8B",
+  "method": "vanilla_rag",
+  "dataset": "news",
+  "scoring": "cot_nothink",
+  "compress_target_token": 64,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 16,
+  "n_samples": 8663,
+  "accuracy": 0.917,
+  "correct": 7944,
+  "extract_success": 8625,
+  "extract_success_rate": 0.9956,
+  "avg_gen_length": 396.5,
+  "latency_ms_mean": 958.48,
+  "timestamp": "2026-04-30T16:42:52.957282+00:00",
+  "git_sha": "1aa6cc7"
+}

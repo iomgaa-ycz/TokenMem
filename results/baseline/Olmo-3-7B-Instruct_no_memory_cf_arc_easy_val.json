@@ -1,0 +1,19 @@
+{
+  "model": "Olmo-3-7B-Instruct",
+  "model_path": "hugglingface_model/Olmo-3-7B-Instruct",
+  "method": "no_memory",
+  "dataset": "cf_arc_easy_val",
+  "scoring": "cot_nothink",
+  "compress_target_token": null,
+  "cot_max_new_tokens": 1024,
+  "batch_size": 16,
+  "n_samples": 2745,
+  "accuracy": 0.016,
+  "correct": 44,
+  "extract_success": 2742,
+  "extract_success_rate": 0.9989,
+  "avg_gen_length": 345.7,
+  "latency_ms_mean": 801.56,
+  "timestamp": "2026-05-03T04:11:08.568818+00:00",
+  "git_sha": "1aa6cc7"
+}

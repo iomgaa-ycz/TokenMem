@@ -1,0 +1,19 @@
+{
+  "model": "Olmo-3-7B-Instruct",
+  "model_path": "hugglingface_model/Olmo-3-7B-Instruct",
+  "method": "vanilla_rag",
+  "dataset": "medqa",
+  "scoring": "cot_nothink",
+  "compress_target_token": 64,
+  "cot_max_new_tokens": 1024,
+  "batch_size": 16,
+  "n_samples": 1273,
+  "accuracy": 0.7518,
+  "correct": 957,
+  "extract_success": 1142,
+  "extract_success_rate": 0.8971,
+  "avg_gen_length": 997.1,
+  "latency_ms_mean": 3445.52,
+  "timestamp": "2026-05-02T14:56:11.427663+00:00",
+  "git_sha": "1aa6cc7"
+}
