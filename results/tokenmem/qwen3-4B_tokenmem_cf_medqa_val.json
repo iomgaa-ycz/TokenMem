@@ -1,0 +1,20 @@
+{
+  "model": "qwen3-4B",
+  "model_path": "hugglingface_model/qwen3-4B",
+  "method": "tokenmem",
+  "gate_dir": "checkpoints/qwen3-4b_sft_cot_p2/best",
+  "dataset": "cf_medqa_val",
+  "scoring": "cot_nothink",
+  "knowledge_max_len": 256,
+  "cot_max_new_tokens": 2048,
+  "batch_size": 8,
+  "n_samples": 1146,
+  "accuracy": 0.7016,
+  "correct": 804,
+  "extract_success": 1145,
+  "extract_success_rate": 0.9991,
+  "avg_gen_length": 255.1,
+  "latency_ms_mean": 1489.79,
+  "timestamp": "2026-05-03T07:31:16.422372+00:00",
+  "git_sha": "1aa6cc7"
+}
