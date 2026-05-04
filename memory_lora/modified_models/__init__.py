@@ -5,4 +5,5 @@
 - Gemma3 (1B)                      → model_type: gemma3_text
 - Ministral (3B)                   → model_type: ministral
 - OLMo3 (7B)                      → model_type: olmo3
+- LLaMA (8B+)                     → model_type: llama
 """

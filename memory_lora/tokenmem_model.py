@@ -27,6 +27,7 @@ _MODEL_CLASS_MAP = {
     "gemma3_text": "memory_lora.modified_models.modeling_gemma3",
     "ministral": "memory_lora.modified_models.modeling_ministral",
     "olmo3": "memory_lora.modified_models.modeling_olmo3",
+    "llama": "memory_lora.modified_models.modeling_llama",
 }
 
 _CAUSAL_LM_CLASS_MAP = {
@@ -34,6 +35,7 @@ _CAUSAL_LM_CLASS_MAP = {
     "gemma3_text": "Gemma3ForCausalLM",
     "ministral": "MinistralForCausalLM",
     "olmo3": "Olmo3ForCausalLM",
+    "llama": "LlamaForCausalLM",
 }
 
 
