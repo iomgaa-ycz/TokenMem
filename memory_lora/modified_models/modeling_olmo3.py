@@ -205,9 +205,7 @@ class Olmo3Attention(nn.Module):
             value_states = (
                 self.v_proj(encoder_hidden_states).view(kv_hidden_shape).transpose(1, 2)
             )
-            # knowledge 无位置语义：仅对 Q 施加 RoPE，不对 K 施加
-            cos, sin = position_embeddings
-            query_states, _ = apply_rotary_pos_emb(query_states, query_states, cos, sin)
+            # cross-attention 无位置语义：Q 和 K 都不施加 RoPE（对齐 DecoupledRAG）
         else:
             # 原始 self-attention 路径
             key_states = self.k_norm(self.k_proj(hidden_states))
