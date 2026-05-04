@@ -20,6 +20,7 @@ __pycache__/
 
 # Syncthing
 .stfolder/
+.syncthing.*.tmp
 
 # Reference materials (large external repos & PDFs)
 Reference/
